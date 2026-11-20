@@ -1,3 +1,12 @@
+# ============================================================
+# PART 1: IMPORT REQUIRED LIBRARIES
+# ============================================================
+
+import gymnasium as gym
+from gymnasium import spaces
+import numpy as np
+import random
+import heapq
 
 
 # ============================================================
