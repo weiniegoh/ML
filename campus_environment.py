@@ -1,20 +1,23 @@
 
-# ==========================================
-# 1. IMPORT REQUIRED LIBRARIES
-# ==========================================
 
-import gymnasium as gym
-from gymnasium import spaces
-import numpy as np
-import random
-import heapq
-
-
-# ==========================================
-# 2. CAMPUS DELIVERY ENVIRONMENT
-# ==========================================
+# ============================================================
+# PART 2: CAMPUS FOOD DELIVERY ENVIRONMENT
+# ============================================================
 
 class CampusDeliveryEnv(gym.Env):
+    """
+    Campus Food Delivery Environment (36 Nodes).
+
+    Features:
+    - 5 starting restaurants
+    - 3 delivery destinations
+    - 36 interconnected waypoints
+    - Sunny and rainy weather
+    - Fixed-route and random-moving obstacles
+    - Traffic detection based on obstacle positions
+    - Distance and weather-based rewards
+    - Wait action
+    """
 
     def __init__(self, max_steps=80):
         super().__init__()
@@ -22,9 +25,9 @@ class CampusDeliveryEnv(gym.Env):
         self.max_steps = max_steps
         self.steps = 0
 
-        # --------------------------------------
-        # 2.1 NODE NAMES
-        # --------------------------------------
+        # ----------------------------------------------------
+        # 2.1 CAMPUS MAP: NODE NAMES
+        # ----------------------------------------------------
 
         self.all_nodes = list(range(36))
 
@@ -67,25 +70,9 @@ class CampusDeliveryEnv(gym.Env):
             35: "Carpark D"
         }
 
-        # --------------------------------------
-        # 2.2 NODE COORDINATES
-        # --------------------------------------
-
-        self.node_coords = {
-            0: (6, 48),   1: (15, 48),  2: (21, 38),  3: (32, 38),
-            4: (43, 38),  5: (58, 25),  6: (43, 47),  7: (43, 56),
-            8: (60, 90),  9: (80, 92),  10: (22, 80), 11: (35, 83),
-            12: (71, 25), 13: (69, 34), 14: (73, 43), 15: (76, 68),
-            16: (64, 57), 17: (67, 50), 18: (67, 43), 19: (63, 37),
-            20: (63, 64), 21: (63, 72), 22: (15, 23), 23: (12, 12),
-            24: (25, 9),  25: (26, 23), 26: (35, 24), 27: (45, 16),
-            28: (51, 33), 29: (54, 56), 30: (94, 61), 31: (93, 52),
-            32: (87, 45), 33: (82, 52), 34: (81, 41), 35: (84, 76)
-        }
-
-        # --------------------------------------
-        # 2.3 BIDIRECTIONAL CAMPUS GRAPH
-        # --------------------------------------
+        # ----------------------------------------------------
+        # 2.2 CAMPUS MAP: BIDIRECTIONAL GRAPH
+        # ----------------------------------------------------
 
         self.graph = {
             0: [1],
@@ -126,19 +113,20 @@ class CampusDeliveryEnv(gym.Env):
             35: [8, 9, 30]
         }
 
-        # Validate graph connections
+        # Check that every road is bidirectional
         for node, neighbours in self.graph.items():
             for neighbour in neighbours:
                 assert node in self.graph[neighbour], (
-                    f"Graph is not bidirectional: {node} -> {neighbour}"
+                    f"Graph is not bidirectional: "
+                    f"{node} -> {neighbour}"
                 )
 
+        # Check that all 36 nodes are included
         assert set(self.graph.keys()) == set(self.all_nodes)
-        assert set(self.node_coords.keys()) == set(self.all_nodes)
 
-        # --------------------------------------
-        # 2.4 RESTAURANTS AND DESTINATIONS
-        # --------------------------------------
+        # ----------------------------------------------------
+        # 2.3 RESTAURANTS, DESTINATIONS AND FOOD MENUS
+        # ----------------------------------------------------
 
         self.start_locations = [0, 4, 16, 22, 30]
 
@@ -152,10 +140,11 @@ class CampusDeliveryEnv(gym.Env):
             30: ["Western Chicken Chop", "Fried Kuey Teow", "Iced Coffee"]
         }
 
-        # --------------------------------------
-        # 2.5 WEATHER AND UNCOVERED PATHS
-        # --------------------------------------
+        # ----------------------------------------------------
+        # 2.4 WEATHER AND UNCOVERED PATHS
+        # ----------------------------------------------------
 
+        # These paths receive an additional -15 penalty in rain.
         self.uncovered_paths = {
             frozenset({1, 10}),
             frozenset({10, 11}),
@@ -171,9 +160,9 @@ class CampusDeliveryEnv(gym.Env):
             frozenset({35, 8})
         }
 
-        # --------------------------------------
-        # 2.6 PEDESTRIAN AND CAR ZONES
-        # --------------------------------------
+        # ----------------------------------------------------
+        # 2.5 PEDESTRIAN AND CAR ZONES
+        # ----------------------------------------------------
 
         self.crowd_level = {
             7: 1.5,
@@ -194,27 +183,35 @@ class CampusDeliveryEnv(gym.Env):
             25, 26, 27, 28, 29, 33, 34, 35
         }
 
-        # --------------------------------------
-        # 2.7 MOVING OBSTACLES
-        # --------------------------------------
+        # ----------------------------------------------------
+        # 2.5.1 MOVING OBSTACLE CONFIGURATION
+        # ----------------------------------------------------
 
+        # Fixed pedestrian route
         self.pedestrian_routes = [
             [3, 4]
         ]
 
+        # Fixed car route
         self.car_routes = [
             [4, 27, 5, 28]
         ]
 
+        # Initial positions of moving obstacles
         self.pedestrian_positions = [3, 6]
         self.car_positions = [4, 12]
 
+        # Current route index for fixed-route obstacles
         self.pedestrian_route_indices = [0]
         self.car_route_indices = [0]
 
-        # --------------------------------------
-        # 2.8 DISTANCE-BASED STEP COSTS
-        # --------------------------------------
+
+        # ----------------------------------------------------
+        # 2.6 DISTANCE-BASED STEP COSTS
+        # ----------------------------------------------------
+
+        # Default movement cost = -1
+        # Longer paths have higher movement costs.
 
         self.longer_paths = {
             frozenset({23, 24}): -3,
@@ -225,18 +222,26 @@ class CampusDeliveryEnv(gym.Env):
             frozenset({30, 35}): -2
         }
 
-        # --------------------------------------
-        # 2.9 ACTION AND OBSERVATION SPACES
-        # --------------------------------------
+        # ----------------------------------------------------
+        # 2.7 ACTION SPACE AND OBSERVATION SPACE
+        # ----------------------------------------------------
 
-        # Actions 0-35: move to a neighbouring node
-        # Action 36: wait
+        # Actions 0-35: Move to a neighbouring node
+        # Action 36: Wait
 
         self.action_space = spaces.Discrete(37)
 
-        # Default mode for Q-learning and SARSA
+        # State:
+        # (Current Location, Target, Weather, Traffic)
+
+        # Weather: 0 = Sunny, 1 = Rainy
+        # Traffic: 0 = Clear, 1 = Pedestrian, 2 = Car
+
+        # Default observation mode for Q-learning and SARSA
         self.observation_mode = "tabular"
 
+        # Tabular observation:
+        # (robot location, destination, weather, nearby traffic)
         self.observation_space = spaces.Tuple((
             spaces.Discrete(36),
             spaces.Discrete(36),
@@ -244,9 +249,9 @@ class CampusDeliveryEnv(gym.Env):
             spaces.Discrete(3)
         ))
 
-        # --------------------------------------
-        # 2.10 INITIAL VARIABLES
-        # --------------------------------------
+        # ----------------------------------------------------
+        # 2.8 INITIAL ENVIRONMENT VARIABLES
+        # ----------------------------------------------------
 
         self.current_location = None
         self.target_destination = None
@@ -254,12 +259,20 @@ class CampusDeliveryEnv(gym.Env):
         self.current_traffic = None
         self.selected_food = None
 
-    # ==========================================
-    # 3. HELPER FUNCTIONS
-    # ==========================================
+    # ========================================================
+    # PART 3: HELPER FUNCTIONS
+    # ========================================================
+
+    # --------------------------------------------------------
+    # 3.1 RANDOM CHOICE USING ENVIRONMENT SEED
+    # --------------------------------------------------------
 
     def _choice(self, seq):
         return seq[int(self.np_random.integers(len(seq)))]
+
+    # --------------------------------------------------------
+    # 3.2 GET VALID ACTIONS
+    # --------------------------------------------------------
 
     def valid_actions(self, location=None):
         loc = self.current_location if location is None else location
@@ -269,6 +282,10 @@ class CampusDeliveryEnv(gym.Env):
 
         return self.graph[loc] + [36]
 
+    # --------------------------------------------------------
+    # 3.3 CALCULATE OBSTACLE PROBABILITY
+    # --------------------------------------------------------
+
     def obstacle_prob(self, node):
         base = 0.25 if self.current_weather == 0 else 0.35
 
@@ -277,14 +294,21 @@ class CampusDeliveryEnv(gym.Env):
             base * self.crowd_level.get(node, 1.0)
         )
 
+    # --------------------------------------------------------
+    # 3.4 CALCULATE EXPECTED EDGE COST
+    # --------------------------------------------------------
+
     def edge_cost(self, u, v):
         edge = frozenset({u, v})
 
+        # Distance cost
         cost = -self.longer_paths.get(edge, -1)
 
+        # Rain penalty
         if self.current_weather == 1 and edge in self.uncovered_paths:
             cost += 15
 
+        # Expected waiting cost at pedestrian/car zones
         if (
             v != self.target_destination
             and (v in self.pedestrian_zones or v in self.car_zones)
@@ -294,8 +318,19 @@ class CampusDeliveryEnv(gym.Env):
 
         return cost
 
+    # --------------------------------------------------------
+    # 3.5 REFERENCE OPTIMAL ACTION USING DIJKSTRA
+    # --------------------------------------------------------
+
     def optimal_action(self):
-        """Dijkstra-based reference policy, not an RL agent."""
+        """
+        Reference policy using Dijkstra's algorithm.
+
+        This is a map-based benchmark, not an RL agent.
+        """
+
+        if self.current_traffic != 0:
+            return 36
 
         dist = {
             node: float("inf")
@@ -303,6 +338,7 @@ class CampusDeliveryEnv(gym.Env):
         }
 
         dist[self.target_destination] = 0
+
         pq = [(0, self.target_destination)]
 
         while pq:
@@ -325,40 +361,50 @@ class CampusDeliveryEnv(gym.Env):
             key=lambda n: self.edge_cost(loc, n) + dist[n]
         )
 
-    # ==========================================
-    # 4. OBSERVATION FUNCTIONS
-    # ==========================================
+    # ========================================================
+    # PART 4: OBSERVATION AND INFORMATION FUNCTIONS
+    # ========================================================
+
+    # --------------------------------------------------------
+    # 4.1 GET CURRENT STATE
+    # --------------------------------------------------------
+
 
     def set_observation_mode(self, mode):
+        """Select tabular or full observation representation."""
+
         if mode not in ["tabular", "full"]:
-            raise ValueError("Mode must be 'tabular' or 'full'.")
+            raise ValueError(
+                "Mode must be 'tabular' or 'full'."
+            )
 
         self.observation_mode = mode
 
         if mode == "tabular":
             self.observation_space = spaces.Tuple((
-                spaces.Discrete(36),
-                spaces.Discrete(36),
-                spaces.Discrete(2),
-                spaces.Discrete(3)
+                spaces.Discrete(36),  # Robot location
+                spaces.Discrete(36),  # Destination
+                spaces.Discrete(2),   # Weather
+                spaces.Discrete(3)    # Nearby traffic
             ))
 
         else:
             self.observation_space = spaces.Tuple((
-                spaces.Discrete(36),
-                spaces.Discrete(36),
-                spaces.Discrete(2),
-                spaces.Discrete(36),
-                spaces.Discrete(36),
-                spaces.Discrete(36),
-                spaces.Discrete(36)
+                spaces.Discrete(36),  # Robot location
+                spaces.Discrete(36),  # Destination
+                spaces.Discrete(2),   # Weather
+                spaces.Discrete(36),  # Pedestrian 1
+                spaces.Discrete(36),  # Pedestrian 2
+                spaces.Discrete(36),  # Car 1
+                spaces.Discrete(36)   # Car 2
             ))
 
     def _get_tabular_obs(self):
-        nearby_nodes = (
-            [self.current_location]
-            + self.graph[self.current_location]
-        )
+        """Simplified observation for Q-learning and SARSA."""
+
+        nearby_nodes = [
+            self.current_location
+        ] + self.graph[self.current_location]
 
         pedestrian_nearby = any(
             pos in nearby_nodes
@@ -370,6 +416,9 @@ class CampusDeliveryEnv(gym.Env):
             for pos in self.car_positions
         )
 
+        # 0 = Clear
+        # 1 = Pedestrian nearby
+        # 2 = Car nearby
         if car_nearby:
             traffic = 2
         elif pedestrian_nearby:
@@ -385,6 +434,8 @@ class CampusDeliveryEnv(gym.Env):
         )
 
     def _get_full_obs(self):
+        """Full observation for REINFORCE, A2C and DQN."""
+
         return (
             self.current_location,
             self.target_destination,
@@ -396,12 +447,20 @@ class CampusDeliveryEnv(gym.Env):
         )
 
     def _get_obs(self):
+        """Return observation according to selected mode."""
+
         if self.observation_mode == "tabular":
             return self._get_tabular_obs()
 
         return self._get_full_obs()
 
+
+    # --------------------------------------------------------
+    # 4.2 GET ENVIRONMENT INFORMATION
+    # --------------------------------------------------------
+
     def _get_info(self, outcome="reset", rain_violation=False):
+
         traffic_map = {
             0: "Clear",
             1: "Pedestrian Detected",
@@ -421,12 +480,44 @@ class CampusDeliveryEnv(gym.Env):
             "steps": self.steps
         }
 
+    # ========================================================
+    # PART 5: TRAFFIC DETECTION
+    # ========================================================
 
-    # ======================================
-    # OBSTACLE FUNCTIONS
-    # ======================================
+    def _scan_traffic(self):
+        """
+        Randomly detects traffic at the robot's current waypoint.
 
-    # Copy your latest:
+        Traffic:
+        0 = Clear
+        1 = Pedestrian detected
+        2 = Car detected
+        """
+
+        if (
+            self.np_random.random()
+            < self.obstacle_prob(self.current_location)
+        ):
+
+            in_ped_zone = (
+                self.current_location in self.pedestrian_zones
+            )
+
+            in_car_zone = (
+                self.current_location in self.car_zones
+            )
+
+            if in_ped_zone and in_car_zone:
+                return self._choice([1, 2])
+
+            elif in_car_zone:
+                return 2
+
+            elif in_ped_zone:
+                return 1
+
+        return 0
+
     def _move_fixed_obstacles(self):
         """Move fixed-route obstacles to their next positions."""
 
@@ -481,22 +572,29 @@ class CampusDeliveryEnv(gym.Env):
 
         if car_neighbours:
             self.car_positions[1] = self._choice(car_neighbours)
-    # Any other obstacle-related functions
 
-        # ======================================
-    # ENVIRONMENT FUNCTIONS
-    # ======================================
+
+    # ========================================================
+    # PART 6: RESET ENVIRONMENT
+    # ========================================================
 
     def reset(self, seed=None, options=None):
         """
-        Resets the campus delivery environment.
+        Resets the environment.
+
+        Optional customer order:
+        {
+            'start': restaurant node ID,
+            'target': destination node ID,
+            'food': food name,
+            'weather': 0 or 1
+        }
         """
 
         super().reset(seed=seed)
 
         self.steps = 0
-
-        # Reset moving obstacle positions
+        #Reset moving obstacle positions
         self.pedestrian_positions = [3, 6]
         self.car_positions = [4, 12]
 
@@ -509,6 +607,7 @@ class CampusDeliveryEnv(gym.Env):
         if not isinstance(options, dict):
             raise TypeError("Options must be a dictionary.")
 
+        # Check for unsupported option names
         allowed_options = {"start", "target", "food", "weather"}
 
         unknown_options = set(options.keys()) - allowed_options
@@ -523,7 +622,7 @@ class CampusDeliveryEnv(gym.Env):
             if options["start"] not in self.start_locations:
                 raise ValueError("Invalid starting restaurant.")
 
-        # Validate destination
+        # Validate target destination
         if "target" in options:
             if options["target"] not in self.target_destinations:
                 raise ValueError("Invalid target destination.")
@@ -535,44 +634,69 @@ class CampusDeliveryEnv(gym.Env):
                     "Weather must be 0 (Sunny) or 1 (Rainy)."
                 )
 
-        # Select destination
+        # ----------------------------------------------------
+        # 6.1 SELECT DELIVERY DESTINATION
+        # ----------------------------------------------------
+
         self.target_destination = (
             options["target"]
             if "target" in options
             else self._choice(self.target_destinations)
         )
 
-        # Select restaurant
+        # ----------------------------------------------------
+        # 6.2 SELECT STARTING RESTAURANT
+        # ----------------------------------------------------
+
         self.current_location = (
             options["start"]
             if "start" in options
             else self._choice(self.start_locations)
         )
 
-        # Select weather
+        # ----------------------------------------------------
+        # 6.3 SELECT WEATHER
+        # ----------------------------------------------------
+
         self.current_weather = (
             options["weather"]
             if "weather" in options
             else self._choice([0, 1])
         )
 
-        # Select food
+        # ----------------------------------------------------
+        # 6.4 SELECT FOOD
+        # ----------------------------------------------------
+
         if "food" in options:
+
             self.selected_food = options["food"]
 
-            if self.selected_food not in self.food_menus[self.current_location]:
+            if (
+                self.selected_food
+                not in self.food_menus[self.current_location]
+            ):
                 raise ValueError(
                     "Food item is not available at the selected restaurant."
                 )
+
         else:
             self.selected_food = self._choice(
                 self.food_menus[self.current_location]
             )
 
-        # Initial traffic detection
+        # ----------------------------------------------------
+        # 6.5 INITIAL TRAFFIC DETECTION
+        # ----------------------------------------------------
+
         self.current_traffic = self._get_tabular_obs()[3]
 
         return self._get_obs(), self._get_info("reset")
+
+
+    # ========================================================
+    # PART 7: ENVIRONMENT STEP
+    # ========================================================
 
     def step(self, action):
         """Executes one action and updates moving obstacles."""
@@ -593,9 +717,9 @@ class CampusDeliveryEnv(gym.Env):
 
         previous_location = self.current_location
 
-        # ------------------------------------------
-        # PROCESS ROBOT ACTION
-        # ------------------------------------------
+        # ----------------------------------------------------
+        # 7.1 PROCESS ROBOT ACTION
+        # ----------------------------------------------------
 
         if action == 36:
             reward = -2
@@ -622,16 +746,16 @@ class CampusDeliveryEnv(gym.Env):
 
             self.current_location = action
 
-        # ------------------------------------------
-        # MOVE ALL FOUR OBSTACLES
-        # ------------------------------------------
+        # ----------------------------------------------------
+        # 7.2 MOVE ALL FOUR OBSTACLES
+        # ----------------------------------------------------
 
         self._move_fixed_obstacles()
         self._move_random_obstacles()
 
-        # ------------------------------------------
-        # CHECK NODE COLLISIONS
-        # ------------------------------------------
+        # ----------------------------------------------------
+        # 7.3 CHECK NODE COLLISIONS
+        # ----------------------------------------------------
 
         if self.current_location in self.pedestrian_positions:
             reward -= 25
@@ -643,9 +767,9 @@ class CampusDeliveryEnv(gym.Env):
             terminated = True
             outcome = "car_collision"
 
-        # ------------------------------------------
-        # CHECK EDGE-SWAP COLLISIONS
-        # ------------------------------------------
+        # ----------------------------------------------------
+        # 7.4 CHECK EDGE-SWAP COLLISIONS
+        # ----------------------------------------------------
 
         if not terminated:
 
@@ -676,27 +800,24 @@ class CampusDeliveryEnv(gym.Env):
                         outcome = "car_collision"
                         break
 
-        # ------------------------------------------
-        # CHECK DESTINATION
-        # ------------------------------------------
+        # ----------------------------------------------------
+        # 7.5 CHECK DESTINATION
+        # ----------------------------------------------------
 
-        if (
-            not terminated
-            and self.current_location == self.target_destination
-        ):
+        if not terminated and self.current_location == self.target_destination:
             reward += 100
             terminated = True
             outcome = "goal"
 
-        # ------------------------------------------
-        # UPDATE TRAFFIC INFORMATION
-        # ------------------------------------------
+        # ----------------------------------------------------
+        # 7.6 UPDATE TRAFFIC INFORMATION
+        # ----------------------------------------------------
 
         self.current_traffic = self._get_tabular_obs()[3]
 
-        # ------------------------------------------
-        # CHECK MAXIMUM STEP LIMIT
-        # ------------------------------------------
+        # ----------------------------------------------------
+        # 7.7 CHECK MAXIMUM STEP LIMIT
+        # ----------------------------------------------------
 
         if not terminated and self.steps >= self.max_steps:
             truncated = True
@@ -708,3 +829,4 @@ class CampusDeliveryEnv(gym.Env):
             truncated,
             self._get_info(outcome, rain_violation)
         )
+
