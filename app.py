@@ -623,23 +623,6 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
 
 
 
-
-        # Draw waypoint name beside the icon
-        ax.annotate(
-            env.node_names[node_id],
-            (x, y),
-            xytext=(-2, -22),
-            textcoords="offset points",
-            ha="left",
-            va="center",
-            fontsize=6.5,
-            fontweight="bold",
-            color=label_color,
-            zorder=6
-        )
-
-
-
     # 3.4 Moving obstacles: person and car icons, plus an arrow for the last move
     if show_obstacles:
         for kind, positions, make_icon, base_dx, base_dy, arrow_color, tag in (
