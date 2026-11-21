@@ -561,6 +561,7 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
     
     
     
+    
     # 3.3 Waypoint icons and labels
     for node_id, (x, y) in env.node_coords.items():
 
@@ -578,8 +579,7 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
 
         marker = icon_waypoint(node_id, name)
 
-        # Use different positions to keep markers away from route lines.
-        # These offsets can be adjusted individually later if needed.
+        # Initial positions for icons and labels
         label_offsets = {
             0: (-30, -28),
             1: (12, 18),
@@ -591,40 +591,36 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
 
         dx, dy = label_offsets.get(node_id, (12, 18))
 
-        # Draw icon only when the location has one.
-        if marker is not None:
-            place_icon(
-                ax, marker, x, y,
-                dx=dx,
-                dy=dy,
-                zorder=7
-            )
+        # Bus stop: show icon only, without a text label
+        if "bus stop" in name_lower:
+            if marker is not None:
+                place_icon(ax, marker, x, y, dx, dy, zorder=7)
+            continue
 
-            # Put the label beside the icon.
-            label_dx = dx + 13 if dx < 0 else dx + 17
-        else:
-            # Roof Top B: text only, no icon.
+        # Roof Top B: text only, without an icon
+        if marker is None:
             label_dx = 12
-            dy = 18
+            label_dy = 18
 
+        else:
+            place_icon(ax, marker, x, y, dx, dy, zorder=7)
+            label_dx = dx + 13 if dx < 0 else dx + 17
+            label_dy = dy
+
+        # Draw each waypoint name only once
         ax.annotate(
             name,
             (x, y),
-            xytext=(label_dx, dy),
+            xytext=(label_dx, label_dy),
             textcoords="offset points",
             ha="left",
             va="center",
             fontsize=6.5,
             fontweight="bold",
             color=label_color,
-            bbox=dict(
-                boxstyle="round,pad=0.2",
-                facecolor="#ffffff",
-                edgecolor="none",
-                alpha=0.92
-            ),
             zorder=8
         )
+
 
 
 
