@@ -404,25 +404,27 @@ def draw_campus_background(ax):
 
 
 
+
 def icon_waypoint(node_id, node_name=""):
     """Draw small, box-free icons for campus locations."""
 
-    da = DrawingArea(30, 26, 0, 0)
-
+    # Roof Top B: no icon
     name = node_name.lower()
+    if "roof top" in name or "rooftop" in name:
+        return None
+
+    da = DrawingArea(30, 26, 0, 0)
 
     canteens = {0, 4, 22, 30}
     pools = {20}
     carparks = {12, 25, 29, 35}
     bus_stops = {24, 32}
 
-    # 1. Canteen / food stall
     if node_id in canteens or any(
         word in name for word in ("canteen", "cafe", "yum yum", "red bricks")
     ):
         da.add_artist(Rectangle(
-            (5, 5), 20, 10,
-            fc="#d97706", ec="#92400e", lw=0.8
+            (5, 5), 20, 10, fc="#d97706", ec="#92400e", lw=0.8
         ))
         da.add_artist(Polygon(
             [(3, 15), (27, 15), (24, 23), (6, 23)],
@@ -433,7 +435,6 @@ def icon_waypoint(node_id, node_name=""):
                 (x, 15), 3, 7, fc="#fff7ed", ec="none"
             ))
 
-    # 2. Swimming pool
     elif node_id in pools or "swimming pool" in name:
         da.add_artist(FancyBboxPatch(
             (3, 5), 24, 17,
@@ -442,12 +443,10 @@ def icon_waypoint(node_id, node_name=""):
         ))
         for y in (10, 15):
             da.add_artist(Line2D(
-                [7, 12, 17, 22],
-                [y, y + 2, y, y + 2],
+                [7, 12, 17, 22], [y, y + 2, y, y + 2],
                 color="white", linewidth=1
             ))
 
-    # 3. Car park
     elif node_id in carparks or "car park" in name or "carpark" in name:
         da.add_artist(FancyBboxPatch(
             (5, 4), 20, 21,
@@ -455,31 +454,25 @@ def icon_waypoint(node_id, node_name=""):
             fc="#2563eb", ec="#1e40af", lw=0.8
         ))
         da.add_artist(Text(
-            15, 14, "P",
-            ha="center", va="center",
+            15, 14, "P", ha="center", va="center",
             fontsize=17, fontweight="bold", color="white"
         ))
 
-    # 4. Bus stop
     elif node_id in bus_stops or "bus stop" in name:
         da.add_artist(Rectangle(
             (14, 3), 2, 15, fc="#475569", ec="none"
         ))
         da.add_artist(Rectangle(
-            (4, 16), 22, 9,
-            fc="#0f766e", ec="#134e4a", lw=0.8
+            (4, 16), 22, 9, fc="#0f766e", ec="#134e4a", lw=0.8
         ))
         da.add_artist(Text(
-            15, 20, "BUS",
-            ha="center", va="center",
+            15, 20, "BUS", ha="center", va="center",
             fontsize=6, fontweight="bold", color="white"
         ))
 
-    # 5. Basketball court
     elif "basketball" in name:
         da.add_artist(Rectangle(
-            (3, 5), 24, 17,
-            fc="#e9a15b", ec="#92400e", lw=1
+            (3, 5), 24, 17, fc="#e9a15b", ec="#92400e", lw=1
         ))
         da.add_artist(Line2D(
             [15, 15], [5, 22], color="white", linewidth=0.8
@@ -487,33 +480,16 @@ def icon_waypoint(node_id, node_name=""):
         da.add_artist(Circle(
             (15, 13.5), 3.5, fc="none", ec="white", lw=0.8
         ))
-        da.add_artist(patches.Arc(
-            (3, 13.5), 9, 10, theta1=-90, theta2=90,
-            color="white", linewidth=0.8
-        ))
-        da.add_artist(patches.Arc(
-            (27, 13.5), 9, 10, theta1=90, theta2=270,
-            color="white", linewidth=0.8
-        ))
 
-    # 6. Library - book icon
     elif "library" in name:
-        da.add_artist(Rectangle(
-            (5, 5), 7, 18, fc="#2563eb", ec="#1e40af", lw=0.8
-        ))
-        da.add_artist(Rectangle(
-            (13, 5), 7, 18, fc="#16a34a", ec="#166534", lw=0.8
-        ))
-        da.add_artist(Rectangle(
-            (21, 5), 5, 18, fc="#f59e0b", ec="#92400e", lw=0.8
-        ))
-        for x in (8, 16, 23):
-            da.add_artist(Line2D(
-                [x - 1, x + 1], [9, 9],
-                color="white", linewidth=0.7
+        for x, color in (
+            (5, "#2563eb"), (13, "#16a34a"), (21, "#f59e0b")
+        ):
+            da.add_artist(Rectangle(
+                (x, 5), 5 if x == 21 else 7, 18,
+                fc=color, ec="#334155", lw=0.8
             ))
 
-    # 7. Hostel - bed icon
     elif "hostel" in name:
         da.add_artist(Rectangle(
             (4, 7), 23, 3, fc="#64748b", ec="#334155", lw=0.8
@@ -524,29 +500,10 @@ def icon_waypoint(node_id, node_name=""):
         da.add_artist(Rectangle(
             (6, 14), 7, 5, fc="#f8fafc", ec="#64748b", lw=0.7
         ))
-        da.add_artist(Rectangle(
-            (4, 4), 2, 7, fc="#475569", ec="none"
-        ))
-        da.add_artist(Rectangle(
-            (25, 4), 2, 7, fc="#475569", ec="none"
-        ))
 
-    # 8. Roof Top - simple roofline only
-    elif "roof top" in name or "rooftop" in name:
-        da.add_artist(Line2D(
-            [3, 15, 27], [10, 22, 10],
-            color="#92400e", linewidth=2.2
-        ))
-        da.add_artist(Line2D(
-            [7, 7, 23, 23], [10, 5, 5, 10],
-            color="#b08968", linewidth=1.5
-        ))
-
-    # 9. Other buildings - simple building icon
     else:
         da.add_artist(Rectangle(
-            (5, 5), 20, 15,
-            fc="#c4b49a", ec="#78664d", lw=0.9
+            (5, 5), 20, 15, fc="#c4b49a", ec="#78664d", lw=0.9
         ))
         da.add_artist(Polygon(
             [(3, 20), (15, 25), (27, 20)],
@@ -554,11 +511,11 @@ def icon_waypoint(node_id, node_name=""):
         ))
         for x in (9, 18):
             da.add_artist(Rectangle(
-                (x, 9), 5, 7,
-                fc="#e0f2fe", ec="#64748b", lw=0.6
+                (x, 9), 5, 7, fc="#e0f2fe", ec="#64748b", lw=0.6
             ))
 
     return da
+
 
 
 
@@ -603,8 +560,12 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
     
     
     
-    # 3.3 Waypoint icons and readable labels
+    
+    # 3.3 Waypoint icons and labels
     for node_id, (x, y) in env.node_coords.items():
+
+        name = env.node_names[node_id]
+        name_lower = name.lower()
 
         if node_id == current_node:
             label_color = "#0891b2"
@@ -615,23 +576,41 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
         else:
             label_color = "#334155"
 
-        marker = icon_waypoint(
-            node_id,
-            env.node_names[node_id]
-        )
+        marker = icon_waypoint(node_id, name)
 
-        # Small icon on the left
-        place_icon(
-            ax, marker, x, y,
-            dx=-21, dy=-22,
-            zorder=7
-        )
+        # Use different positions to keep markers away from route lines.
+        # These offsets can be adjusted individually later if needed.
+        label_offsets = {
+            0: (-30, -28),
+            1: (12, 18),
+            2: (-30, 20),
+            3: (12, -28),
+            4: (-30, 18),
+            5: (12, 20),
+        }
 
-        # Location name on the right
+        dx, dy = label_offsets.get(node_id, (12, 18))
+
+        # Draw icon only when the location has one.
+        if marker is not None:
+            place_icon(
+                ax, marker, x, y,
+                dx=dx,
+                dy=dy,
+                zorder=7
+            )
+
+            # Put the label beside the icon.
+            label_dx = dx + 13 if dx < 0 else dx + 17
+        else:
+            # Roof Top B: text only, no icon.
+            label_dx = 12
+            dy = 18
+
         ax.annotate(
-            env.node_names[node_id],
+            name,
             (x, y),
-            xytext=(-2, -22),
+            xytext=(label_dx, dy),
             textcoords="offset points",
             ha="left",
             va="center",
@@ -646,6 +625,7 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
             ),
             zorder=8
         )
+
 
 
         # Draw waypoint name beside the icon
