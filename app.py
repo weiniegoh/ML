@@ -695,13 +695,35 @@ elif st.session_state.page == "tracking":
         logs.append(f"Step {step_num}: {log_line} | Reward: {reward:+} pts")
 
         with hud_placeholder.container():
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("🏆 Current Score", f"{total_score} pts", f"{reward:+} pts")
-            m2.metric("👣 Steps Taken", f"{step_num}")
-            m3.metric("🌦️ Weather",
-                      "Rainy 🌧️" if env.current_weather == 1 else "Sunny ☀️")
-            m4.metric("🚧 Moving Obstacles",
-                      f"{len(env.pedestrian_positions) + len(env.car_positions)}")
+        m1, m2, m3, m4 = st.columns(4)
+    
+        m1.metric("🏆 Current Score", f"{total_score} pts")
+    
+        m1.markdown(
+            f"""
+            <div style="
+                color: #334155;
+                font-size: 14px;
+                font-weight: 600;
+                margin-top: -12px;
+            ">
+                {reward:+} pts
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    
+        m2.metric("👣 Steps Taken", f"{step_num}")
+    
+        m3.metric(
+            "🌦️ Weather",
+            "Rainy 🌧️" if env.current_weather == 1 else "Sunny ☀️"
+        )
+    
+        m4.metric(
+            "🚧 Moving Obstacles",
+            f"{len(env.pedestrian_positions) + len(env.car_positions)}"
+        )
 
         fig = render_campus_map(env, visited_nodes, env.current_location,
                                 env.target_destination, total_score,
