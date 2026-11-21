@@ -837,11 +837,24 @@ elif st.session_state.page == "tracking":
 
     elif terminated:
 
-        st.error(
-            f"🚨 DELIVERY TERMINATED! "
-            f"The robot encountered a collision or "
-            f"another terminal condition. "
-            f"Final Score: {total_score} pts"
+        st.markdown(
+            f"""
+            <div style="
+                background-color: #fee2e2;
+                color: #991b1b;
+                border: 1px solid #fca5a5;
+                border-left: 6px solid #dc2626;
+                border-radius: 10px;
+                padding: 18px;
+                font-size: 16px;
+                font-weight: 600;
+            ">
+                🚨 DELIVERY TERMINATED!<br><br>
+                The robot encountered a collision or another terminal condition.<br>
+                Final Score: {total_score} pts
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
     elif truncated:
