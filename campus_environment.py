@@ -111,6 +111,16 @@ class CampusDeliveryEnv(gym.Env):
             actions.append(36)
         return actions
 
+    def obstacle_counts(self):
+        """Return the number of pedestrians and cars for each time period."""
+        counts = {
+            0: (2, 2),  # Day
+            1: (3, 2),  # Evening
+            2: (1, 1)   # Night
+        }
+
+        return counts[self.current_time_of_day]
+
     def obstacle_prob(self, node):
         base = 0.25 if self.current_weather == 0 else 0.35
 
@@ -245,15 +255,18 @@ class CampusDeliveryEnv(gym.Env):
         )
 
     def _get_full_obs(self):
+        ped_positions = self.pedestrian_positions + [0, 0]
+        car_positions = self.car_positions + [0, 0]
+
         return (
             int(self.current_location),
             int(self.target_destination),
             int(self.current_weather),
             int(self.current_time_of_day),
-            int(self.pedestrian_positions[0]),
-            int(self.pedestrian_positions[1]),
-            int(self.car_positions[0]),
-            int(self.car_positions[1])
+            int(ped_positions[0]),
+            int(ped_positions[1]),
+            int(car_positions[0]),
+            int(car_positions[1])
         )
 
     def _get_obs(self):
@@ -309,23 +322,43 @@ class CampusDeliveryEnv(gym.Env):
                 size[c] = len(comp)
         return size
 
-    def _spawn_walkers(self, zone, hotspots=None):
-        """Two random start nodes inside `zone`, at least 2 hops from the robot
-        (so they never start on the robot) and inside a zone piece with >= 3
-        connected nodes. Always returns exactly 2 plain ints."""
+    def _spawn_walkers(self, zone, hotspots=None, count=2):
+        """Spawn the requested number of obstacles inside their allowed zones."""
         hops = self._hops_from(self.current_location)
         sizes = self._zone_component_size(zone)
+
         eligible = []
-        if hotspots is not None:  # "routes" mode: start at a hotspot
-            eligible = sorted(n for n in hotspots
-                              if n in zone and hops.get(n, 99) >= 2 and sizes.get(n, 0) >= 3)
-        if len(eligible) < 2:
-            eligible = sorted(n for n in zone if hops.get(n, 99) >= 2 and sizes[n] >= 3)
-        if len(eligible) < 2:  # fallback: relax the movement requirement
-            eligible = sorted(n for n in zone if hops.get(n, 99) >= 2)
-        if len(eligible) < 2:  # last resort: anything except the robot's node
-            eligible = sorted(n for n in zone if n != self.current_location)
-        picks = self.np_random.choice(eligible, size=2, replace=False)
+
+        if hotspots is not None:
+            eligible = sorted(
+                n for n in hotspots
+                if n in zone and hops.get(n, 99) >= 2
+                and sizes.get(n, 0) >= 3
+            )
+
+        if len(eligible) < count:
+            eligible = sorted(
+                n for n in zone
+                if hops.get(n, 99) >= 2 and sizes.get(n, 0) >= 3
+            )
+
+        if len(eligible) < count:
+            eligible = sorted(
+                n for n in zone if hops.get(n, 99) >= 2
+            )
+
+        if len(eligible) < count:
+            eligible = sorted(
+                n for n in zone if n != self.current_location
+            )
+
+        if len(eligible) < count:
+            raise ValueError("Not enough eligible nodes to spawn obstacles.")
+
+        picks = self.np_random.choice(
+            eligible, size=count, replace=False
+        )
+
         return [int(n) for n in picks]
 
     def _walker_step(self, pos, prev, zone):
@@ -351,11 +384,23 @@ class CampusDeliveryEnv(gym.Env):
         return (pos, prev) if pause else (nxt, pos)
 
     def _move_walkers(self):
-        for i in range(2):
-            self.pedestrian_positions[i], self.pedestrian_prev[i] = self._walker_step(
-                self.pedestrian_positions[i], self.pedestrian_prev[i], self.pedestrian_zones)
-            self.car_positions[i], self.car_prev[i] = self._walker_step(
-                self.car_positions[i], self.car_prev[i], self.car_zones)
+        for i in range(len(self.pedestrian_positions)):
+            self.pedestrian_positions[i], self.pedestrian_prev[i] = (
+                self._walker_step(
+                    self.pedestrian_positions[i],
+                    self.pedestrian_prev[i],
+                    self.pedestrian_zones
+                )
+            )
+
+        for i in range(len(self.car_positions)):
+            self.car_positions[i], self.car_prev[i] = (
+                self._walker_step(
+                    self.car_positions[i],
+                    self.car_prev[i],
+                    self.car_zones
+                )
+            )
 
     def _move_fixed_obstacles(self):
         pedestrian_route = self.pedestrian_routes[0]
@@ -366,17 +411,36 @@ class CampusDeliveryEnv(gym.Env):
         self.car_positions[0] = car_route[self.car_route_indices[0]]
 
     def _move_random_obstacles(self):
-        self.pedestrian_positions[1], self.pedestrian_prev[1] = self._walker_step(
-            self.pedestrian_positions[1], self.pedestrian_prev[1], self.pedestrian_zones)
-        self.car_positions[1], self.car_prev[1] = self._walker_step(
-            self.car_positions[1], self.car_prev[1], self.car_zones)
+        for i in range(1, len(self.pedestrian_positions)):
+            self.pedestrian_positions[i], self.pedestrian_prev[i] = (
+                self._walker_step(
+                    self.pedestrian_positions[i],
+                    self.pedestrian_prev[i],
+                    self.pedestrian_zones
+                )
+            )
+
+        for i in range(1, len(self.car_positions)):
+            self.car_positions[i], self.car_prev[i] = (
+                self._walker_step(
+                    self.car_positions[i],
+                    self.car_prev[i],
+                    self.car_zones
+                )
+            )
 
     # ---------------- "routes" mode ----------------
 
     def _reset_route_state(self):
         self._route = {
-            "ped": [{"goal": None, "path": [], "dwell": 0} for _ in range(2)],
-            "car": [{"goal": None, "path": [], "dwell": 0} for _ in range(2)],
+            "ped": [
+                {"goal": None, "path": [], "dwell": 0}
+                for _ in range(len(self.pedestrian_positions))
+            ],
+            "car": [
+                {"goal": None, "path": [], "dwell": 0}
+                for _ in range(len(self.car_positions))
+            ],
         }
 
     def _zone_path(self, start, goal, zone):
@@ -488,10 +552,12 @@ class CampusDeliveryEnv(gym.Env):
 
 
     def _move_routes(self):
-        for i in range(2):
+        for i in range(len(self.pedestrian_positions)):
             old = self.pedestrian_positions[i]
             self.pedestrian_positions[i] = self._route_step("ped", i)
             self.pedestrian_prev[i] = old
+
+        for i in range(len(self.car_positions)):
             old = self.car_positions[i]
             self.car_positions[i] = self._route_step("car", i)
             self.car_prev[i] = old
@@ -595,17 +661,37 @@ class CampusDeliveryEnv(gym.Env):
             )
 
 
-        self.pedestrian_prev = [None, None]
-        self.car_prev = [None, None]
-        self._reset_route_state()
+                # Determine obstacle numbers based on time of day
+        pedestrian_count, car_count = self.obstacle_counts()
 
-        # Obstacles: always exactly 2 pedestrians and 2 cars
+        self.pedestrian_prev = [None] * pedestrian_count
+        self.car_prev = [None] * car_count
+
+        # Spawn pedestrians and cars
         if self.obstacle_mode == "random":
-            self.pedestrian_positions = self._spawn_walkers(self.pedestrian_zones)
-            self.car_positions = self._spawn_walkers(self.car_zones)
+            self.pedestrian_positions = self._spawn_walkers(
+                self.pedestrian_zones,
+                count=pedestrian_count
+            )
+
+            self.car_positions = self._spawn_walkers(
+                self.car_zones,
+                count=car_count
+            )
+
         elif self.obstacle_mode == "routes":
-            self.pedestrian_positions = self._spawn_walkers(self.pedestrian_zones, self.pedestrian_hotspots)
-            self.car_positions = self._spawn_walkers(self.car_zones, self.car_hotspots)
+            self.pedestrian_positions = self._spawn_walkers(
+                self.pedestrian_zones,
+                self.pedestrian_hotspots,
+                count=pedestrian_count
+            )
+
+            self.car_positions = self._spawn_walkers(
+                self.car_zones,
+                self.car_hotspots,
+                count=car_count
+            )
+
         else:
             pedestrian_route = self.pedestrian_routes[0]
             car_route = self.car_routes[0]
@@ -614,6 +700,7 @@ class CampusDeliveryEnv(gym.Env):
                 (i for i, n in enumerate(pedestrian_route)
                  if n != self.current_location), 0
             )
+
             car_index = next(
                 (i for i, n in enumerate(car_route)
                  if n != self.current_location), 0
@@ -621,8 +708,24 @@ class CampusDeliveryEnv(gym.Env):
 
             self.pedestrian_route_indices = [ped_index]
             self.car_route_indices = [car_index]
-            self.pedestrian_positions = [pedestrian_route[ped_index], 6]
-            self.car_positions = [car_route[car_index], 12]
+
+            self.pedestrian_positions = [
+                pedestrian_route[ped_index]
+            ] + self._spawn_walkers(
+                self.pedestrian_zones,
+                count=pedestrian_count - 1
+            )
+
+            self.car_positions = [
+                car_route[car_index]
+            ] + self._spawn_walkers(
+                self.car_zones,
+                count=car_count - 1
+            )
+
+        # Initialize route information for the spawned obstacles
+        self._reset_route_state()
+
 
         # Update traffic and return the initial observation
         self.current_traffic = self._get_tabular_obs()[4]
