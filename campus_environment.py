@@ -11,8 +11,8 @@ class CampusDeliveryEnv(gym.Env):
     def __init__(self, max_steps=80, obstacle_mode="random", contact_mode="retreat",
                  allow_wait=True, stay_prob=0.2, retreat_penalty=-3):
         super().__init__()
-        if obstacle_mode not in ("random", "mixed"):
-            raise ValueError("obstacle_mode must be 'random' or 'mixed'.")
+        if obstacle_mode not in ("random", "mixed", "routes"):
+            raise ValueError("obstacle_mode must be 'random', 'mixed' or 'routes'.")
         if contact_mode not in ("retreat", "collision"):
             raise ValueError("contact_mode must be 'retreat' or 'collision'.")
         if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps <= 0:
@@ -67,6 +67,16 @@ class CampusDeliveryEnv(gym.Env):
         self.car_route_indices = [0]
         self.pedestrian_prev = [None, None]
         self.car_prev = [None, None]
+
+        # "routes" mode: obstacles travel between hotspots along shortest paths
+        # (restaurants, library, arena, bus stops / car parks, main roads),
+        # wait there for a few steps, then pick a new hotspot.
+        self.pedestrian_hotspots = [0, 4, 5, 7, 14, 16, 21, 24, 26, 30, 32]
+        self.car_hotspots = [3, 4, 5, 8, 12, 21, 25, 26, 27, 35]
+        self.route_dwell = {"ped": (1, 3), "car": (1, 2)}  # waiting steps at a hotspot
+        assert set(self.pedestrian_hotspots) <= self.pedestrian_zones
+        assert set(self.car_hotspots) <= self.car_zones
+        self._reset_route_state()
 
         self.longer_paths = {frozenset({23,24}):-3,frozenset({24,27}):-2,frozenset({1,10}):-2,frozenset({7,8}):-2,frozenset({14,15}):-2,frozenset({30,35}):-2}
         self.action_space = spaces.Discrete(37)
@@ -222,13 +232,18 @@ class CampusDeliveryEnv(gym.Env):
                 size[c] = len(comp)
         return size
 
-    def _spawn_walkers(self, zone):
+    def _spawn_walkers(self, zone, hotspots=None):
         """Two random start nodes inside `zone`, at least 2 hops from the robot
         (so they never start on the robot) and inside a zone piece with >= 3
         connected nodes. Always returns exactly 2 plain ints."""
         hops = self._hops_from(self.current_location)
         sizes = self._zone_component_size(zone)
-        eligible = sorted(n for n in zone if hops.get(n, 99) >= 2 and sizes[n] >= 3)
+        eligible = []
+        if hotspots is not None:  # "routes" mode: start at a hotspot
+            eligible = sorted(n for n in hotspots
+                              if n in zone and hops.get(n, 99) >= 2 and sizes.get(n, 0) >= 3)
+        if len(eligible) < 2:
+            eligible = sorted(n for n in zone if hops.get(n, 99) >= 2 and sizes[n] >= 3)
         if len(eligible) < 2:  # fallback: relax the movement requirement
             eligible = sorted(n for n in zone if hops.get(n, 99) >= 2)
         if len(eligible) < 2:  # last resort: anything except the robot's node
@@ -271,9 +286,97 @@ class CampusDeliveryEnv(gym.Env):
         self.car_positions[1], self.car_prev[1] = self._walker_step(
             self.car_positions[1], self.car_prev[1], self.car_zones)
 
+    # ---------------- "routes" mode ----------------
+
+    def _reset_route_state(self):
+        self._route = {
+            "ped": [{"goal": None, "path": [], "dwell": 0} for _ in range(2)],
+            "car": [{"goal": None, "path": [], "dwell": 0} for _ in range(2)],
+        }
+
+    def _zone_path(self, start, goal, zone):
+        """Shortest path (list of nodes after `start`) staying inside `zone`; [] if none."""
+        if start == goal:
+            return []
+        prev, queue = {start: None}, [start]
+        for u in queue:
+            if u == goal:
+                break
+            for v in self.graph[u]:
+                if v in zone and v not in prev:
+                    prev[v] = u
+                    queue.append(v)
+        if goal not in prev:
+            return []
+        path, n = [], goal
+        while n != start:
+            path.append(n)
+            n = prev[n]
+        return path[::-1]
+
+    def _route_step(self, kind, i):
+        """One purposeful step: wait at a hotspot, else follow the planned path,
+        else pick a new hotspot (weighted by crowd_level) and start walking.
+        Always uses exactly two random draws per obstacle per step, so every
+        agent sees identical obstacle movement for the same seed."""
+        if kind == "ped":
+            zone, hotspots, pos = self.pedestrian_zones, self.pedestrian_hotspots, self.pedestrian_positions[i]
+        else:
+            zone, hotspots, pos = self.car_zones, self.car_hotspots, self.car_positions[i]
+        st = self._route[kind][i]
+        u_goal = self.np_random.random()
+        u_dwell = self.np_random.random()
+
+        if st["dwell"] > 0:
+            st["dwell"] -= 1
+            return pos
+
+        if not st["path"]:
+            paths = {}
+            for h in hotspots:
+                if h != pos:
+                    p = self._zone_path(pos, h, zone)
+                    if p:
+                        paths[h] = p
+            cands = list(paths)
+            if not cands:
+                return pos
+            weights = np.array([self.crowd_level.get(h, 1.0) for h in cands], dtype=float)
+            cum = np.cumsum(weights / weights.sum())
+            goal = cands[min(int(np.searchsorted(cum, u_goal, side="right")), len(cands) - 1)]
+            st["goal"], st["path"] = goal, paths[goal]
+
+        nxt = st["path"].pop(0)
+        if not st["path"]:  # arrived
+            lo, hi = self.route_dwell[kind]
+            st["dwell"] = lo + min(int(u_dwell * (hi - lo + 1)), hi - lo)
+            st["goal"] = None
+        return int(nxt)
+
+    def _move_routes(self):
+        for i in range(2):
+            old = self.pedestrian_positions[i]
+            self.pedestrian_positions[i] = self._route_step("ped", i)
+            self.pedestrian_prev[i] = old
+            old = self.car_positions[i]
+            self.car_positions[i] = self._route_step("car", i)
+            self.car_prev[i] = old
+
+    def obstacle_intents(self):
+        """What each obstacle is doing (for display): node, goal (or None), waiting."""
+        out = {}
+        for kind, pos in (("ped", self.pedestrian_positions), ("car", self.car_positions)):
+            out[kind] = [{"node": pos[i],
+                          "goal": self._route[kind][i]["goal"],
+                          "waiting": self._route[kind][i]["dwell"] > 0}
+                         for i in range(len(pos))]
+        return out
+
     def _move_obstacles(self):
         if self.obstacle_mode == "random":
             self._move_walkers()
+        elif self.obstacle_mode == "routes":
+            self._move_routes()
         else:
             self._move_fixed_obstacles()
             self._move_random_obstacles()
@@ -332,11 +435,15 @@ class CampusDeliveryEnv(gym.Env):
 
         self.pedestrian_prev = [None, None]
         self.car_prev = [None, None]
+        self._reset_route_state()
 
         # Obstacles: always exactly 2 pedestrians and 2 cars
         if self.obstacle_mode == "random":
             self.pedestrian_positions = self._spawn_walkers(self.pedestrian_zones)
             self.car_positions = self._spawn_walkers(self.car_zones)
+        elif self.obstacle_mode == "routes":
+            self.pedestrian_positions = self._spawn_walkers(self.pedestrian_zones, self.pedestrian_hotspots)
+            self.car_positions = self._spawn_walkers(self.car_zones, self.car_hotspots)
         else:
             pedestrian_route = self.pedestrian_routes[0]
             car_route = self.car_routes[0]
