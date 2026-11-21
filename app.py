@@ -39,37 +39,137 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+    /* ---- Force a complete light look, independent of the user's/browser's
+       Streamlit theme (so no white-on-white text that only shows on hover) ---- */
     :root { color-scheme: light; }
 
-    .stApp { background-color: #f8fafc; color: #1e293b; }
-    [data-testid="stHeader"] { background-color: #f8fafc; }
-    [data-testid="stSidebar"] { background-color: #f1f5f9; }
-
-    .stMarkdown, .stText, label, p, h1, h2, h3, h4,
-    [data-testid="stMetricLabel"], [data-testid="stMetricValue"] {
-        color: #1e293b;
+    html, body, .stApp,
+    [data-testid="stAppViewContainer"], [data-testid="stMain"],
+    [data-testid="stHeader"], [data-testid="stToolbar"],
+    [data-testid="stBottom"], .main {
+        background-color: #f8fafc !important;
+        color: #1e293b !important;
+    }
+    [data-testid="stSidebar"], [data-testid="stSidebar"] > div {
+        background-color: #f1f5f9 !important;
     }
 
-    div.stButton > button {
-        width: 100%;
-        background: linear-gradient(90deg, #0d9488 0%, #06b6d4 100%);
-        color: white;
-        font-weight: 700;
+    /* ---- Normal text ---- */
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
+    .stApp p, .stApp li, .stApp label,
+    .stApp [data-testid="stMarkdownContainer"],
+    .stApp [data-testid="stMarkdownContainer"] p,
+    .stApp [data-testid="stMarkdownContainer"] li,
+    .stApp [data-testid="stCaptionContainer"],
+    .stApp [data-testid="stWidgetLabel"],
+    .stApp [data-testid="stWidgetLabel"] p,
+    .stApp [data-testid="stHeader"] *,
+    .stApp [data-testid="stToolbar"] * {
+        color: #1e293b !important;
+    }
+
+    /* ---- Dropdowns (selectbox) ---- */
+    .stApp [data-baseweb="select"] > div {
+        background-color: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+    }
+    .stApp [data-baseweb="select"] *,
+    .stApp [data-baseweb="select"] input {
+        color: #1e293b !important;
+        -webkit-text-fill-color: #1e293b !important;
+    }
+    .stApp [data-baseweb="select"] svg { fill: #475569 !important; }
+
+    /* the opened list lives in a popover outside .stApp */
+    [data-baseweb="popover"], [data-baseweb="popover"] > div,
+    [data-baseweb="menu"], ul[role="listbox"] {
+        background-color: #ffffff !important;
+        color: #1e293b !important;
+    }
+    [data-baseweb="popover"] li, [data-baseweb="menu"] li,
+    ul[role="listbox"] li {
+        background-color: #ffffff !important;
+        color: #1e293b !important;
+    }
+    [data-baseweb="popover"] li *, [data-baseweb="menu"] li *,
+    ul[role="listbox"] li * {
+        color: #1e293b !important;
+    }
+    [data-baseweb="popover"] li:hover, ul[role="listbox"] li:hover,
+    ul[role="listbox"] li[aria-selected="true"] {
+        background-color: #e0f2fe !important;
+    }
+
+    /* ---- Radio buttons ---- */
+    .stApp [data-testid="stRadio"] label,
+    .stApp [data-testid="stRadio"] label *,
+    .stApp [data-testid="stRadio"] p {
+        color: #1e293b !important;
+    }
+
+    /* ---- Expander ---- */
+    .stApp [data-testid="stExpander"] {
+        background-color: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
         border-radius: 10px;
-        padding: 0.65rem 1rem;
-        border: none;
     }
-    div.stButton > button:hover {
-        background: linear-gradient(90deg, #0f766e 0%, #0891b2 100%);
-        color: white;
+    .stApp [data-testid="stExpander"] summary,
+    .stApp [data-testid="stExpander"] summary *,
+    .stApp [data-testid="stExpander"] details,
+    .stApp [data-testid="stExpander"] [data-testid="stExpanderDetails"] * {
+        color: #1e293b !important;
+        background-color: transparent !important;
+    }
+    .stApp [data-testid="stExpander"] summary:hover {
+        background-color: #f1f5f9 !important;
     }
 
-    [data-testid="stMetric"] {
-        background: #ffffff;
+    /* ---- Info / warning / success / error boxes ---- */
+    .stApp [data-testid="stAlert"] {
+        background-color: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        border-left: 5px solid #06b6d4 !important;
+        border-radius: 10px;
+    }
+    .stApp [data-testid="stAlert"] *,
+    .stApp [data-testid="stAlert"] p {
+        color: #1e293b !important;
+    }
+
+    /* ---- Metric cards ---- */
+    .stApp [data-testid="stMetric"] {
+        background: #ffffff !important;
         border: 1px solid #cbd5e1;
         border-left: 5px solid #06b6d4;
         border-radius: 10px;
         padding: 10px 14px;
+    }
+    .stApp [data-testid="stMetricLabel"], .stApp [data-testid="stMetricLabel"] *,
+    .stApp [data-testid="stMetricValue"], .stApp [data-testid="stMetricValue"] * {
+        color: #1e293b !important;
+    }
+
+    /* ---- Buttons: white text on the teal gradient (always visible) ---- */
+    .stApp div.stButton > button,
+    .stApp [data-testid="stBaseButton-secondary"],
+    .stApp [data-testid="stBaseButton-primary"] {
+        width: 100%;
+        background: linear-gradient(90deg, #0d9488 0%, #06b6d4 100%) !important;
+        border: none !important;
+        border-radius: 10px;
+        padding: 0.65rem 1rem;
+        font-weight: 700;
+    }
+    .stApp div.stButton > button,
+    .stApp div.stButton > button *,
+    .stApp div.stButton button [data-testid="stMarkdownContainer"] p,
+    .stApp [data-testid="stBaseButton-secondary"] *,
+    .stApp [data-testid="stBaseButton-primary"] * {
+        color: #ffffff !important;
+    }
+    .stApp div.stButton > button:hover,
+    .stApp [data-testid="stBaseButton-secondary"]:hover {
+        background: linear-gradient(90deg, #0f766e 0%, #0891b2 100%) !important;
     }
 </style>
 """, unsafe_allow_html=True)
