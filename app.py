@@ -589,9 +589,10 @@ if st.session_state.page == "order":
                 "start": chosen_start,
                 "target": chosen_target,
                 "food": chosen_food,
-                "weather": weather_value,
-                "model": selected_model
+                "weather": weather_value
             }
+            
+            st.session_state.selected_model = selected_model
 
             st.session_state.page = "tracking"
 
@@ -634,7 +635,7 @@ if st.session_state.page == "order":
 elif st.session_state.page == "tracking":
 
     cfg = st.session_state.order_config
-    selected_model = cfg["model"]
+    selected_model = st.session_state.selected_model
     # Reset the latest environment using the
     # customer's selected order.
 
