@@ -94,6 +94,7 @@ class CampusDeliveryEnv(gym.Env):
         self.current_time_of_day = None
         self.current_traffic = None
         self.selected_food = None
+        self.rain_safe_return = None
 
     # ------------------------------------------------------------
     # Helpers
@@ -102,14 +103,60 @@ class CampusDeliveryEnv(gym.Env):
     def _choice(self, seq):
         return seq[int(self.np_random.integers(len(seq)))]
 
+    
     def valid_actions(self, location=None):
         loc = self.current_location if location is None else location
+
         if loc is None or loc not in self.graph:
-            raise ValueError("Invalid location (did you call reset()?).")
+            raise ValueError("Invalid location (did you call reset() first?).")
+
         actions = list(self.graph[loc])
+
+        # Sunny: all neighbouring roads are allowed.
+        if self.current_weather != 1:
+            return actions + ([36] if self.allow_wait else [])
+
+        occupied = self.occupied_nodes()
+
+        # Identify covered roads.
+        covered_actions = [
+            node for node in actions
+            if frozenset({loc, node}) not in self.uncovered_paths
+        ]
+
+        # Covered roads that are not blocked by obstacles.
+        safe_covered_actions = [
+            node for node in covered_actions
+            if node not in occupied
+        ]
+
+        if safe_covered_actions:
+            result = safe_covered_actions
+
+        elif self.rain_safe_return is not None:
+            if (
+                self.rain_safe_return in actions
+                and self.rain_safe_return not in self.occupied_nodes()
+            ):
+                result = [self.rain_safe_return]
+            else:
+                result = []
+
+        elif covered_actions:
+            result = []
+
+        else:
+            # No covered road and no previous safe location.
+            # Allow an uncovered road as a last resort.
+            result = [
+                node for node in actions
+                if node not in occupied
+            ]
+
         if self.allow_wait:
-            actions.append(36)
-        return actions
+            result.append(36)
+
+        return result
 
     def obstacle_counts(self):
         """Return the number of pedestrians and cars for each time period."""
@@ -617,6 +664,7 @@ class CampusDeliveryEnv(gym.Env):
 
         self.steps = 0
         self._episode_over = False
+        self.rain_safe_return = None
 
         # Destination
         self.target_destination = (options["target"] if "target" in options
@@ -768,7 +816,7 @@ class CampusDeliveryEnv(gym.Env):
             reward = -2
             outcome = "wait"
 
-        elif action not in self.graph[self.current_location]:
+        elif action not in self.valid_actions():
             reward = -5
             outcome = "invalid"
 
@@ -797,7 +845,22 @@ class CampusDeliveryEnv(gym.Env):
                 rain_violation = True
 
             # Reduced visibility penalty
+            # Reduced visibility penalty
             reward += self.visibility_penalty()
+
+            # Track the previous safe location during rainy weather.
+            # Track the previous safe location during rainy weather.
+            if self.current_weather == 1:
+
+              if action == self.rain_safe_return:
+                  self.rain_safe_return = None
+
+              elif path_edge in self.uncovered_paths:
+                  if self.rain_safe_return is None:
+                      self.rain_safe_return = self.current_location
+
+              else:
+                  self.rain_safe_return = None
 
             self.current_location = action
 
