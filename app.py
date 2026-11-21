@@ -6,6 +6,7 @@ import time
 import numpy as np
 import streamlit as st
 import matplotlib
+from matplotlib.text import Text
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
