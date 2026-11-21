@@ -160,6 +160,12 @@ st.markdown("""
         border-left: 5px solid #06b6d4;
         border-radius: 10px;
         padding: 10px 14px;
+        .stApp [data-testid="stMetricDelta"],
+        .stApp [data-testid="stMetricDelta"] * {
+            color: #475569 !important;
+            -webkit-text-fill-color: #475569 !important;
+        }
+        
     }
     .stApp [data-testid="stMetricLabel"], .stApp [data-testid="stMetricLabel"] *,
     .stApp [data-testid="stMetricValue"], .stApp [data-testid="stMetricValue"] * {
@@ -188,12 +194,7 @@ st.markdown("""
     .stApp [data-testid="stBaseButton-secondary"]:hover {
         background: linear-gradient(90deg, #0f766e 0%, #0891b2 100%) !important;
     }
-    /* ---- Metric delta text (+/- points) ---- */
-    .stApp [data-testid="stMetricDelta"],
-    .stApp [data-testid="stMetricDelta"] * {
-        color: #475569 !important;
-        -webkit-text-fill-color: #475569 !important;
-    }
+    
 </style>
 """, unsafe_allow_html=True)
 
