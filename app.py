@@ -6,7 +6,6 @@ import time
 import numpy as np
 import streamlit as st
 import matplotlib
-from matplotlib.text import Text
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -402,11 +401,11 @@ def draw_campus_background(ax):
         )
 
 
-def icon_waypoint(node_id, node_name, border_color="#806b50"):
-    """Create a small top-down illustrated waypoint marker."""
 
-    width, height = 68, 38
-    da = DrawingArea(width, height, 0, 0)
+def icon_waypoint(node_id, node_name=None, border_color=None):
+    """Create a small category icon without a surrounding box."""
+
+    da = DrawingArea(30, 26, 0, 0)
 
     # Location categories
     canteens = {0, 4, 22, 30}
@@ -415,223 +414,94 @@ def icon_waypoint(node_id, node_name, border_color="#806b50"):
     bus_stops = {24, 32}
     slopes = {31}
 
+    # 1. Canteen / food stall
     if node_id in canteens:
-        category = "canteen"
-        bg, edge = "#fff1d6", "#c77b24"
+        da.add_artist(Rectangle(
+            (5, 5), 20, 10,
+            fc="#d97706", ec="#92400e", lw=0.8
+        ))
+        da.add_artist(Polygon(
+            [(3, 15), (27, 15), (24, 23), (6, 23)],
+            closed=True, fc="#fb923c", ec="#9a3412", lw=0.8
+        ))
+        for x in (8, 14, 20):
+            da.add_artist(Rectangle(
+                (x, 15), 3, 7,
+                fc="#fff7ed", ec="none"
+            ))
+
+    # 2. Building
+    elif node_id not in pools | carparks | bus_stops | slopes:
+        da.add_artist(Rectangle(
+            (4, 5), 22, 16,
+            fc="#c4b49a", ec="#78664d", lw=0.9
+        ))
+        da.add_artist(Polygon(
+            [(3, 21), (15, 26), (27, 21)],
+            closed=True, fc="#8b7355", ec="#78664d", lw=0.8
+        ))
+        for x in (8, 17):
+            da.add_artist(Rectangle(
+                (x, 9), 5, 7,
+                fc="#e0f2fe", ec="#64748b", lw=0.6
+            ))
+
+    # 3. Swimming pool
     elif node_id in pools:
-        category = "pool"
-        bg, edge = "#dbeafe", "#2563eb"
+        da.add_artist(FancyBboxPatch(
+            (3, 5), 24, 17,
+            boxstyle="round,pad=0.2,rounding_size=3",
+            fc="#38bdf8", ec="#0369a1", lw=1
+        ))
+        for y in (10, 15):
+            da.add_artist(Line2D(
+                [7, 12, 17, 22],
+                [y, y + 2, y, y + 2],
+                color="white", linewidth=1
+            ))
+
+    # 4. Car park
     elif node_id in carparks:
-        category = "parking"
-        bg, edge = "#e2e8f0", "#64748b"
-    elif node_id in bus_stops:
-        category = "bus"
-        bg, edge = "#ccfbf1", "#0f766e"
-    elif node_id in slopes:
-        category = "slope"
-        bg, edge = "#dcfce7", "#15803d"
-    else:
-        category = "building"
-        bg, edge = "#e8ddc8", "#806b50"
-
-    # Main marker box
-    da.add_artist(
-        _round_box(
-            1, 1, 66, 36, 4,
-            bg, border_color, 2
-        )
-    )
-
-    # ---------------------------------
-    # 1. CANTEEN / FOOD STALL
-    # ---------------------------------
-    if category == "canteen":
-
-        da.add_artist(
-            Rectangle(
-                (19, 18), 30, 9,
-                fc="#d97706", ec="#92400e", lw=1
-            )
-        )
-
-        # Roof / awning
-        da.add_artist(
-            Polygon(
-                [(16, 28), (52, 28), (48, 34), (20, 34)],
-                closed=True,
-                fc="#fb923c", ec="#9a3412", lw=1
-            )
-        )
-
-        # Awning stripes
-        for x in (23, 31, 39, 47):
-            da.add_artist(
-                Rectangle(
-                    (x, 28), 4, 5,
-                    fc="#fff7ed", ec="none"
-                )
-            )
-
-        # Serving counter
-        da.add_artist(
-            Rectangle(
-                (23, 18), 22, 4,
-                fc="#92400e", ec="none"
-            )
-        )
-
-    # ---------------------------------
-    # 2. BUILDING / ROOFTOP
-    # ---------------------------------
-    elif category == "building":
-
-        # Rooftop base
-        da.add_artist(
-            Rectangle(
-                (17, 18), 34, 16,
-                fc="#c4b49a", ec="#78664d", lw=1
-            )
-        )
-
-        # Roof sections
-        da.add_artist(
-            Rectangle(
-                (20, 21), 12, 10,
-                fc="#a89578", ec="#78664d", lw=0.8
-            )
-        )
-
-        da.add_artist(
-            Rectangle(
-                (35, 21), 13, 10,
-                fc="#d6c6aa", ec="#78664d", lw=0.8
-            )
-        )
-
-        # Rooftop ventilation units
-        da.add_artist(
-            Rectangle(
-                (23, 23), 6, 4,
-                fc="#e5e7eb", ec="#64748b", lw=0.7
-            )
-        )
-
-        da.add_artist(
-            Rectangle(
-                (38, 23), 6, 4,
-                fc="#e5e7eb", ec="#64748b", lw=0.7
-            )
-        )
-
-    # ---------------------------------
-    # 3. SWIMMING POOL
-    # ---------------------------------
-    elif category == "pool":
-
-        da.add_artist(
-            FancyBboxPatch(
-                (16, 18), 36, 16,
-                boxstyle="round,pad=0.2,rounding_size=3",
-                fc="#38bdf8", ec="#0369a1", lw=1.2
-            )
-        )
-
-        # Water waves
-        for y in (22, 26, 30):
-            da.add_artist(
-                Line2D(
-                    [21, 27, 33, 39, 45],
-                    [y, y + 2, y, y + 2, y],
-                    color="white", linewidth=1.2
-                )
-            )
-
-    # ---------------------------------
-    # 4. CAR PARK
-    # ---------------------------------
-    elif category == "parking":
-
-        da.add_artist(
-            Rectangle(
-                (24, 18), 20, 16,
-                fc="#2563eb", ec="#1e40af", lw=1
-            )
-        )
-
-        da.add_artist(
-            Text(
-                34, 26, "P",
-                ha="center", va="center",
-                fontsize=17, fontweight="bold",
-                color="white"
-            )
-        )
-
-    # ---------------------------------
-    # 5. BUS STOP
-    # ---------------------------------
-    elif category == "bus":
-
-        # Sign pole
-        da.add_artist(
-            Rectangle(
-                (33, 17), 2, 13,
-                fc="#475569", ec="none"
-            )
-        )
-
-        # Bus-stop sign
-        da.add_artist(
-            Rectangle(
-                (23, 27), 22, 8,
-                fc="#0f766e", ec="#134e4a", lw=1
-            )
-        )
-
-        da.add_artist(
-            Text(
-                34, 31, "BUS",
-                ha="center", va="center",
-                fontsize=6, fontweight="bold",
-                color="white"
-            )
-        )
-
-    # ---------------------------------
-    # 6. EAST SLOPE
-    # ---------------------------------
-    elif category == "slope":
-
-        # Green hillside
-        da.add_artist(
-            Polygon(
-                [(15, 18), (51, 18), (51, 25), (34, 34), (15, 25)],
-                closed=True,
-                fc="#86c66b", ec="#3f7d36", lw=1
-            )
-        )
-
-        # Sloping pathway
-        da.add_artist(
-            Polygon(
-                [(25, 18), (32, 18), (45, 34), (38, 34)],
-                closed=True,
-                fc="#d6c4a1", ec="#9a8060", lw=0.7
-            )
-        )
-
-    # Waypoint name inside the bottom section
-    da.add_artist(
-        Text(
-            34, 8, node_name,
+        da.add_artist(FancyBboxPatch(
+            (5, 4), 20, 21,
+            boxstyle="round,pad=0.2,rounding_size=2",
+            fc="#2563eb", ec="#1e40af", lw=0.8
+        ))
+        da.add_artist(Text(
+            15, 14, "P",
             ha="center", va="center",
-            fontsize=5.3,
-            fontweight="bold",
-            color="#334155"
-        )
-    )
+            fontsize=17, fontweight="bold", color="white"
+        ))
+
+    # 5. Bus stop
+    elif node_id in bus_stops:
+        da.add_artist(Rectangle(
+            (14, 3), 2, 15, fc="#475569", ec="none"
+        ))
+        da.add_artist(FancyBboxPatch(
+            (4, 16), 22, 9,
+            boxstyle="round,pad=0.2,rounding_size=1",
+            fc="#0f766e", ec="#134e4a", lw=0.8
+        ))
+        da.add_artist(Text(
+            15, 20, "BUS",
+            ha="center", va="center",
+            fontsize=6, fontweight="bold", color="white"
+        ))
+
+    # 6. East Slope
+    elif node_id in slopes:
+        da.add_artist(Polygon(
+            [(3, 5), (27, 5), (27, 15), (15, 25), (3, 15)],
+            closed=True, fc="#86c66b", ec="#3f7d36", lw=0.8
+        ))
+        da.add_artist(Polygon(
+            [(10, 5), (15, 5), (24, 23), (19, 23)],
+            closed=True, fc="#d6c4a1", ec="#9a8060", lw=0.5
+        ))
 
     return da
+
 
 
 def render_campus_map(env, visited_nodes, current_node, target_node,
@@ -672,36 +542,43 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
                 alpha=0.95, zorder=3)
 
     
-    # 3.3 Illustrated waypoint markers
+    
+    # 3.3 Small waypoint icons with names beside them
     for node_id, (x, y) in env.node_coords.items():
 
-        # Highlight the current location
+        # Text colour highlights
         if node_id == current_node:
-            border = "#0891b2"
-
-        # Highlight the delivery destination
+            label_color = "#0891b2"
         elif node_id == target_node:
-            border = "#059669"
-
-        # Highlight restaurant locations
+            label_color = "#059669"
         elif node_id in env.start_locations:
-            border = "#ea580c"
-
+            label_color = "#c2410c"
         else:
-            border = "#806b50"
+            label_color = "#334155"
 
-        marker = icon_waypoint(
-            node_id,
-            env.node_names[node_id],
-            border_color=border
-        )
+        # Draw category icon
+        marker = icon_waypoint(node_id)
 
-        # Position the waypoint marker slightly below the node
         place_icon(
             ax, marker, x, y,
-            dx=0, dy=-23,
+            dx=-21, dy=-22,
             zorder=5
         )
+
+        # Draw waypoint name beside the icon
+        ax.annotate(
+            env.node_names[node_id],
+            (x, y),
+            xytext=(-2, -22),
+            textcoords="offset points",
+            ha="left",
+            va="center",
+            fontsize=6.5,
+            fontweight="bold",
+            color=label_color,
+            zorder=6
+        )
+
 
 
     # 3.4 Moving obstacles: person and car icons, plus an arrow for the last move
