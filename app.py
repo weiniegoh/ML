@@ -124,16 +124,29 @@ st.markdown("""
         background-color: #f1f5f9 !important;
     }
 
-    /* ---- Info / warning / success / error boxes ---- */
-    .stApp [data-testid="stAlert"] {
+    /* ---- Info / warning / success / error boxes ----
+       The inner containers carry their own (dark) background, so every
+       layer is made white/transparent, otherwise dark text sits on dark. */
+    .stApp [data-testid="stAlert"],
+    .stApp [data-testid="stAlertContainer"],
+    .stApp [data-testid="stNotification"] {
+        background: #ffffff !important;
         background-color: #ffffff !important;
         border: 1px solid #cbd5e1 !important;
         border-left: 5px solid #06b6d4 !important;
         border-radius: 10px;
     }
     .stApp [data-testid="stAlert"] *,
-    .stApp [data-testid="stAlert"] p {
+    .stApp [data-testid="stAlertContainer"] *,
+    .stApp [data-testid="stNotification"] * {
+        background: transparent !important;
+        background-color: transparent !important;
         color: #1e293b !important;
+        -webkit-text-fill-color: #1e293b !important;
+    }
+    /* avoid a double border when the outer and inner box both match */
+    .stApp [data-testid="stAlert"] [data-testid="stAlertContainer"] {
+        border: none !important;
     }
 
     /* ---- Metric cards ---- */
