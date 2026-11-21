@@ -1,3 +1,4 @@
+import html
 import os
 import random
 import time
@@ -10,6 +11,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.lines import Line2D
+from matplotlib.offsetbox import AnnotationBbox, DrawingArea
+from matplotlib.patches import Circle, FancyBboxPatch, Polygon, Rectangle
 
 try:
     from campus_environment import CampusDeliveryEnv
@@ -23,6 +26,7 @@ except ImportError:
 
 STEP_DELAY = 0.6                 # seconds between animation frames
 USE_ANTI_BACKTRACKING = True     # must match the setting used in training
+OBSTACLE_MODE = "routes"         # must match OBSTACLE_MODE in q_learning_delivery.py
 Q_TABLE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "q_table.npy")
 
 
@@ -192,7 +196,45 @@ st.markdown("""
 # 2. ENVIRONMENT & Q-TABLE
 # ==========================================
 
-env = CampusDeliveryEnv()
+env = CampusDeliveryEnv(obstacle_mode=OBSTACLE_MODE)
+
+
+NOTE_STYLES = {   # background, border, text
+    "info":    ("#e0f2fe", "#0ea5e9", "#0c4a6e"),
+    "success": ("#dcfce7", "#16a34a", "#14532d"),
+    "warning": ("#fef3c7", "#f59e0b", "#78350f"),
+    "error":   ("#fee2e2", "#dc2626", "#7f1d1d"),
+}
+
+
+def note(kind, text):
+    """Coloured message box (plain HTML, so it never depends on Streamlit internals)."""
+    bg, border, fg = NOTE_STYLES[kind]
+    st.markdown(
+        f'<div style="background:{bg};border:1px solid {border};'
+        f'border-left:6px solid {border};border-radius:10px;padding:14px 18px;'
+        f'margin:8px 0;color:{fg};font-weight:600;line-height:1.5;">'
+        f'{html.escape(text)}</div>',
+        unsafe_allow_html=True)
+
+
+def describe_obstacles(env):
+    """One line per obstacle: where it is and what it is doing (routes mode)."""
+    if env.obstacle_mode != "routes":
+        return ""
+    intents = env.obstacle_intents()
+    lines = []
+    for kind, label, icon in (("ped", "P", "🚶"), ("car", "C", "🚗")):
+        for i, it in enumerate(intents[kind]):
+            here = env.node_names[it["node"]]
+            if it["goal"] is not None:
+                what = f"heading to {env.node_names[it['goal']]}"
+            elif it["waiting"]:
+                what = "waiting"
+            else:
+                what = "choosing next stop"
+            lines.append(f"{icon} **{label}{i + 1}** at {here}: {what}")
+    return "  \n".join(lines)
 
 
 @st.cache_resource
@@ -210,8 +252,68 @@ def load_q_table(path=Q_TABLE_PATH):
 # 3. 2D CAMPUS MAP RENDERER
 # ==========================================
 
+# ---- Vector icons (drawn in points, so they never get stretched by the map) ----
+
+def _round_box(x, y, w, h, r, fc, ec, lw=1.2):
+    return FancyBboxPatch((x, y), w, h, boxstyle=f"round,pad=0,rounding_size={r}",
+                          fc=fc, ec=ec, lw=lw)
+
+
+def icon_robot(scale=1.0):
+    k = scale
+    da = DrawingArea(30 * k, 38 * k, 0, 0)
+    for cx in (9, 21):                                          # wheels
+        da.add_artist(Circle((cx * k, 4 * k), 3.6 * k, fc="#334155", ec="white", lw=0.8))
+    da.add_artist(_round_box(6 * k, 6 * k, 18 * k, 11 * k, 2.5 * k, "#0e7490", "#164e63"))   # body
+    da.add_artist(Rectangle((8 * k, 9 * k), 14 * k, 3 * k, fc="#67e8f9", ec="none"))          # chest light
+    da.add_artist(Rectangle((14 * k, 29 * k), 2 * k, 5 * k, fc="#164e63", ec="none"))         # antenna
+    da.add_artist(Circle((15 * k, 35 * k), 2.4 * k, fc="#f97316", ec="#9a3412", lw=0.8))
+    da.add_artist(_round_box(4 * k, 17 * k, 22 * k, 12 * k, 3.5 * k, "#06b6d4", "#164e63", 1.5))  # head
+    for cx in (11, 19):                                         # eyes
+        da.add_artist(Circle((cx * k, 23 * k), 3 * k, fc="white", ec="#164e63", lw=0.8))
+        da.add_artist(Circle((cx * k, 23 * k), 1.3 * k, fc="#0f172a", ec="none"))
+    return da
+
+
+def icon_person(scale=1.0):
+    k = scale
+    da = DrawingArea(22 * k, 33 * k, 0, 0)
+    for lx in (6, 12):                                          # legs
+        da.add_artist(Rectangle((lx * k, 1 * k), 4 * k, 10 * k, fc="#a16207", ec="#713f12", lw=0.8))
+    da.add_artist(_round_box(3.5 * k, 9 * k, 15 * k, 13 * k, 5 * k, "#facc15", "#854d0e", 1.3))  # torso
+    da.add_artist(Circle((11 * k, 27.5 * k), 5 * k, fc="#fde68a", ec="#854d0e", lw=1.3))         # head
+    return da
+
+
+def icon_car(scale=1.0):
+    k = scale
+    da = DrawingArea(38 * k, 23 * k, 0, 0)
+    da.add_artist(Polygon([(10 * k, 13 * k), (13 * k, 21 * k), (27 * k, 21 * k), (30 * k, 13 * k)],
+                          closed=True, fc="#ef4444", ec="#7f1d1d", lw=1.3))                       # cabin
+    da.add_artist(Polygon([(13 * k, 14 * k), (15 * k, 19.5 * k), (19.5 * k, 19.5 * k), (19.5 * k, 14 * k)],
+                          closed=True, fc="#bae6fd", ec="none"))                                   # windows
+    da.add_artist(Polygon([(20.5 * k, 14 * k), (20.5 * k, 19.5 * k), (26 * k, 19.5 * k), (28 * k, 14 * k)],
+                          closed=True, fc="#bae6fd", ec="none"))
+    da.add_artist(_round_box(2 * k, 6 * k, 34 * k, 8 * k, 3 * k, "#ef4444", "#7f1d1d", 1.3))      # body
+    da.add_artist(Circle((33.5 * k, 10 * k), 1.5 * k, fc="#fef08a", ec="none"))                    # headlight
+    for cx in (11, 27):                                         # wheels
+        da.add_artist(Circle((cx * k, 6 * k), 4.2 * k, fc="#1f2937", ec="white", lw=0.8))
+        da.add_artist(Circle((cx * k, 6 * k), 1.6 * k, fc="#9ca3af", ec="none"))
+    return da
+
+
+def place_icon(ax, da, x, y, dx=0, dy=0, zorder=10):
+    """Put an icon at data point (x, y), shifted by (dx, dy) points."""
+    ab = AnnotationBbox(da, (x, y), xybox=(dx, dy), xycoords="data",
+                        boxcoords="offset points", frameon=False,
+                        box_alignment=(0.5, 0.5), pad=0)
+    ab.set_zorder(zorder)
+    ax.add_artist(ab)
+
+
 def render_campus_map(env, visited_nodes, current_node, target_node,
-                      score, step_num, status_text, show_obstacles=True):
+                      score, step_num, status_text, show_obstacles=True,
+                      prev_positions=None):
 
     is_rainy = env.current_weather == 1
     bg_color = "#e0f2fe" if is_rainy else "#f8fafc"
@@ -243,12 +345,12 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
         ax.plot([x1, x2], [y1, y2], color="#06b6d4", linewidth=5,
                 alpha=0.95, zorder=3)
 
-    # 3.3 Nodes
+    # 3.3 Nodes + labels
     for node_id, (x, y) in env.node_coords.items():
         if node_id == current_node:
-            color, size, edge_color, z_order = "#06b6d4", 260, "#0e7490", 6
+            color, size, edge_color, z_order = "#06b6d4", 120, "#0e7490", 6
         elif node_id == target_node:
-            color, size, edge_color, z_order = "#10b981", 230, "#047857", 5
+            color, size, edge_color, z_order = "#10b981", 260, "#047857", 5
         elif node_id in env.start_locations:
             color, size, edge_color, z_order = "#f97316", 150, "#c2410c", 4
         elif node_id in visited_nodes:
@@ -267,31 +369,40 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
         elif node_id in env.car_zones:
             hazard_tag = " [C]"
 
-        ax.text(x, y + 2.2, f"{env.node_names[node_id]}{hazard_tag}",
+        # the robot icon sits on its node, so lift that node's label above it
+        label_y = y + (5.2 if node_id == current_node else 2.2)
+        ax.text(x, label_y, f"{env.node_names[node_id]}{hazard_tag}",
                 fontsize=7.5, ha="center", va="bottom", color="#1e293b",
                 bbox=dict(boxstyle="round,pad=0.18", fc="#ffffff",
-                          ec="none", alpha=0.8),
+                          ec="none", alpha=0.85),
                 zorder=7)
 
-    # 3.4 / 3.5 Moving obstacles
+    # 3.4 Moving obstacles: person and car icons, plus an arrow for the last move
     if show_obstacles:
-        for i, node in enumerate(env.pedestrian_positions):
-            x, y = env.node_coords[node]
-            offset = (i - (len(env.pedestrian_positions) - 1) / 2) * 1.5
-            ax.scatter(x + offset, y + 0.8, s=240, marker="o", color="#facc15",
-                       edgecolors="#854d0e", linewidths=1.8, zorder=9)
-            ax.text(x + offset, y + 0.8, f"P{i + 1}", color="#111827",
-                    fontsize=8, fontweight="bold", ha="center", va="center",
-                    zorder=10)
+        for kind, positions, make_icon, base_dx, base_dy, arrow_color, tag in (
+            ("ped", env.pedestrian_positions, icon_person, -15, -12, "#a16207", "P"),
+            ("car", env.car_positions, icon_car, 16, -10, "#b91c1c", "C"),
+        ):
+            for i, node in enumerate(positions):
+                x, y = env.node_coords[node]
+                dx, dy = base_dx + 11 * i, base_dy
+                if prev_positions and prev_positions[kind][i] != node:
+                    px, py = env.node_coords[prev_positions[kind][i]]
+                    ax.annotate("", xy=(x, y), xytext=(px, py),
+                                arrowprops=dict(arrowstyle="-|>", color=arrow_color,
+                                                lw=2.2, shrinkA=7, shrinkB=9),
+                                zorder=8)
+                place_icon(ax, make_icon(), x, y, dx, dy, zorder=9)
+                ax.annotate(f"{tag}{i + 1}", (x, y), xytext=(dx, dy - 22),
+                            textcoords="offset points", ha="center", va="center",
+                            fontsize=7, fontweight="bold", color="#0f172a",
+                            bbox=dict(boxstyle="round,pad=0.15", fc="#ffffff",
+                                      ec="none", alpha=0.85),
+                            zorder=10)
 
-        for i, node in enumerate(env.car_positions):
-            x, y = env.node_coords[node]
-            offset = (i - (len(env.car_positions) - 1) / 2) * 1.5
-            ax.scatter(x + offset, y - 0.8, s=250, marker="s", color="#ef4444",
-                       edgecolors="#7f1d1d", linewidths=1.8, zorder=9)
-            ax.text(x + offset, y - 0.8, f"C{i + 1}", color="white",
-                    fontsize=8, fontweight="bold", ha="center", va="center",
-                    zorder=10)
+    # 3.5 Robot icon on its current node
+    rx, ry = env.node_coords[current_node]
+    place_icon(ax, icon_robot(), rx, ry, 0, 9, zorder=12)
 
     # 3.6 HUD (dark text on a white box so it is readable in light mode)
     weather_banner = "RAINY" if is_rainy else "SUNNY"
@@ -318,16 +429,27 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
             bbox=dict(boxstyle="round,pad=0.6", facecolor="#ffffff",
                       edgecolor="#06b6d4", linewidth=2, alpha=0.95))
 
-    # 3.7 Legend
+    # 3.7 Icon key (left margin, below the HUD)
+    ax.add_patch(FancyBboxPatch((-27.5, 50), 21, 22, boxstyle="round,pad=0.4,rounding_size=1.5",
+                                fc="#ffffff", ec="#cbd5e1", lw=1.2, alpha=0.95, zorder=11))
+    ax.text(-26.5, 70.2, "ICON KEY", fontsize=8, fontweight="bold",
+            color="#0f172a", va="center", zorder=12)
+    for row_y, make_icon, label in ((63.5, icon_robot, "Robot"),
+                                    (57.5, icon_person, "Pedestrian"),
+                                    (52.5, icon_car, "Car")):
+        place_icon(ax, make_icon(0.55), -23.5, row_y, 0, 0, zorder=12)
+        ax.text(-19, row_y, label, fontsize=8, color="#1e293b",
+                va="center", ha="left", zorder=12)
+
+    # 3.8 Legend for nodes and paths
     legend_elements = [
-        patches.Patch(facecolor="#06b6d4", edgecolor="#0e7490", label="Robot"),
         patches.Patch(facecolor="#10b981", edgecolor="#047857", label="Destination"),
         patches.Patch(facecolor="#f97316", edgecolor="#c2410c", label="Restaurant"),
-        patches.Patch(facecolor="#facc15", edgecolor="#854d0e", label="Pedestrian"),
-        patches.Patch(facecolor="#ef4444", edgecolor="#7f1d1d", label="Car"),
         Line2D([0], [0], color="#06b6d4", lw=4, label="Robot Travelled Path"),
         Line2D([0], [0], color="#64748b", lw=2, label="Covered Walkway"),
         Line2D([0], [0], color="#eab308", lw=2, ls="--", label="Uncovered Path"),
+        Line2D([0], [0], color="#b91c1c", lw=2, marker=">", markersize=6,
+               label="Obstacle's last move"),
     ]
     ax.legend(handles=legend_elements, loc="lower right", facecolor="#ffffff",
               edgecolor="#cbd5e1", labelcolor="#1e293b", fontsize=8)
@@ -446,7 +568,7 @@ if st.session_state.page == "order":
     with col2:
         st.subheader("🗺️ Campus Map Preview")
 
-        preview_env = CampusDeliveryEnv()
+        preview_env = CampusDeliveryEnv(obstacle_mode=OBSTACLE_MODE)
         preview_env.current_location = chosen_start
         preview_env.target_destination = chosen_target
         preview_env.current_weather = 1 if weather_mode == "🌧️ Force Rainy" else 0
@@ -477,7 +599,7 @@ elif st.session_state.page == "tracking":
     try:
         state, info = env.reset(options=cfg)
     except ValueError as err:
-        st.error(f"Invalid order: {err}")
+        note("error", f"Invalid order: {err}")
         st.button("🏠 Back to Order Selection", on_click=go_to_order)
         st.stop()
 
@@ -490,16 +612,17 @@ elif st.session_state.page == "tracking":
         st.button("🔄 New Order", on_click=go_to_order)
 
     if selected_model == "Q-Learning" and q_table is not None:
-        st.info("🤖 Model: Q-Learning (trained Q-table loaded from q_table.npy)")
+        note("info", "🤖 Model: Q-Learning (trained Q-table loaded from q_table.npy)")
     elif selected_model == "Q-Learning":
-        st.warning("🤖 q_table.npy not found next to app.py, so a random valid-action "
-                   "policy is used. Run the training script first.")
+        note("warning", "🤖 q_table.npy not found next to app.py, so a random valid-action "
+                        "policy is used. Run the training script first.")
     else:
-        st.warning(f"🤖 {selected_model} is not integrated yet, so a random "
-                   "valid-action policy is used.")
+        note("warning", f"🤖 {selected_model} is not integrated yet, so a random "
+                        "valid-action policy is used.")
 
     hud_placeholder = st.empty()
     map_placeholder = st.empty()
+    intent_placeholder = st.empty()
     with st.expander("📜 Environment Simulation Log", expanded=True):
         log_placeholder = st.empty()
 
@@ -515,6 +638,7 @@ elif st.session_state.page == "tracking":
                             "Order Dispatched")
     map_placeholder.pyplot(fig)
     plt.close(fig)
+    intent_placeholder.markdown(describe_obstacles(env))
     time.sleep(0.8)
 
     reward = 0
@@ -523,6 +647,8 @@ elif st.session_state.page == "tracking":
 
         action = choose_action(env, state, selected_model, q_table, previous_node)
         previous_location = env.current_location
+        prev_positions = {"ped": list(env.pedestrian_positions),
+                          "car": list(env.car_positions)}
         state, reward, terminated, truncated, info = env.step(action)
         total_score += reward
 
@@ -563,9 +689,11 @@ elif st.session_state.page == "tracking":
 
         fig = render_campus_map(env, visited_nodes, env.current_location,
                                 env.target_destination, total_score,
-                                step_num, status_msg)
+                                step_num, status_msg,
+                                prev_positions=prev_positions)
         map_placeholder.pyplot(fig)
         plt.close(fig)
+        intent_placeholder.markdown(describe_obstacles(env))
 
         log_placeholder.markdown("\n\n".join(logs[-10:]))
         time.sleep(STEP_DELAY)
@@ -577,21 +705,21 @@ elif st.session_state.page == "tracking":
     final_outcome = info.get("outcome")
 
     if final_outcome == "goal":
-        st.success(
-            f"🎉 DELIVERY SUCCESSFUL! Delivered {env.selected_food} to "
-            f"{env.node_names[env.target_destination]} in {step_num} steps. "
-            f"Final Score: {total_score} pts")
+        note("success",
+             f"🎉 DELIVERY SUCCESSFUL! Delivered {env.selected_food} to "
+             f"{env.node_names[env.target_destination]} in {step_num} steps. "
+             f"Final Score: {total_score} pts")
         st.balloons()
 
     elif final_outcome in ("ped_collision", "car_collision"):
         kind = "pedestrian" if final_outcome == "ped_collision" else "car"
-        st.error(
-            f"🚨 DELIVERY FAILED! The robot collided with a {kind} at "
-            f"{env.node_names[env.current_location]}. "
-            f"Final Score: {total_score} pts")
+        note("error",
+             f"🚨 DELIVERY FAILED! The robot collided with a {kind} at "
+             f"{env.node_names[env.current_location]}. "
+             f"Final Score: {total_score} pts")
 
     elif truncated:
-        st.warning(f"⏰ TIME LIMIT REACHED after {step_num} steps. "
-                   f"Final Score: {total_score} pts")
+        note("warning", f"⏰ TIME LIMIT REACHED after {step_num} steps. "
+                        f"Final Score: {total_score} pts")
 
     st.button("🏠 Back to Order Selection", on_click=go_to_order)
