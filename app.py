@@ -255,12 +255,21 @@ def describe_obstacles(env):
 
 @st.cache_resource
 def load_q_table(path=Q_TABLE_PATH):
-    """Load the trained Q-table if it exists and has the right shape."""
+    """Load the trained Q-table if it exists and has the correct shape."""
     if not os.path.exists(path):
         return None
+
     table = np.load(path)
-    if table.shape != (36, 36, 2, 3, 37):
+
+    expected_shape = (36, 36, 2, 3, 3, 37)
+
+    if table.shape != expected_shape:
+        st.warning(
+            f"Q-table shape mismatch. Expected {expected_shape}, "
+            f"but received {table.shape}."
+        )
         return None
+
     return table
 
 
@@ -422,6 +431,8 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
 
     # 3.6 HUD (dark text on a white box so it is readable in light mode)
     weather_banner = "RAINY" if is_rainy else "SUNNY"
+
+    time_banner = ["DAY", "EVENING", "NIGHT"][env.current_time_of_day]
     obstacle_text = ""
     if show_obstacles:
         obstacle_text = (f"Pedestrians : {env.pedestrian_positions}\n"
@@ -433,6 +444,7 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
         f"Score       : {score} pts\n"
         f"Steps Taken : {step_num}\n"
         f"Weather     : {weather_banner}\n"
+        f"Time        : {time_banner}\n"
         f"Current Loc : {env.node_names[current_node]}\n"
         f"Target Dest : {env.node_names[target_node]}\n"
         f"Order Item  : {env.selected_food}\n"
@@ -549,37 +561,63 @@ if st.session_state.page == "order":
             env.food_menus[chosen_start])
 
         st.markdown("---")
-        st.subheader("🤖 Step 2 – Select Reinforcement Learning Model")
-        selected_model = st.selectbox(
-            "Choose an AI model:",
-            ["Q-Learning", "SARSA", "DQN", "A2C", "REINFORCE"])
-
-        st.markdown("---")
         st.subheader("🌦️ Step 3 – Weather")
+        
         weather_mode = st.radio(
             "Weather Condition:",
             ["🎲 Auto Random Weather", "☀️ Force Sunny", "🌧️ Force Rainy"],
-            horizontal=True)
-
+            horizontal=True
+        )
+        
+        st.markdown("---")
+        st.subheader("🕒 Step 4 – Time of Day")
+        
+        time_mode = st.radio(
+            "Time Condition:",
+            [
+                "🎲 Auto Random Time",
+                "☀️ Day",
+                "🌆 Evening",
+                "🌙 Night"
+            ],
+            horizontal=True
+        )
+        
         st.write("")
 
         if st.button("🚀 Confirm Order & Launch Live Tracking"):
-            if weather_mode == "☀️ Force Sunny":
-                weather_value = 0
-            elif weather_mode == "🌧️ Force Rainy":
-                weather_value = 1
-            else:
-                weather_value = random.choice([0, 1])
 
-            st.session_state.order_config = {
-                "start": chosen_start,
-                "target": chosen_target,
-                "food": chosen_food,
-                "weather": weather_value,
-            }
-            st.session_state.selected_model = selected_model
-            st.session_state.page = "tracking"
-            st.rerun()
+        # Weather configuration
+        if weather_mode == "☀️ Force Sunny":
+            weather_value = 0
+        elif weather_mode == "🌧️ Force Rainy":
+            weather_value = 1
+        else:
+            weather_value = random.choice([0, 1])
+    
+        # Order configuration
+        order_config = {
+            "start": chosen_start,
+            "target": chosen_target,
+            "food": chosen_food,
+            "weather": weather_value,
+        }
+    
+        # Time of day configuration
+        if time_mode == "☀️ Day":
+            order_config["time_of_day"] = 0
+        elif time_mode == "🌆 Evening":
+            order_config["time_of_day"] = 1
+        elif time_mode == "🌙 Night":
+            order_config["time_of_day"] = 2
+        # Auto Random Time: do not pass time_of_day.
+        # The environment will select it automatically.
+    
+        st.session_state.order_config = order_config
+        st.session_state.selected_model = selected_model
+        st.session_state.page = "tracking"
+    
+        st.rerun()
 
     with col2:
         st.subheader("🗺️ Campus Map Preview")
@@ -587,7 +625,21 @@ if st.session_state.page == "order":
         preview_env = CampusDeliveryEnv(obstacle_mode=OBSTACLE_MODE)
         preview_env.current_location = chosen_start
         preview_env.target_destination = chosen_target
-        preview_env.current_weather = 1 if weather_mode == "🌧️ Force Rainy" else 0
+        preview_env.current_weather = (
+            1 if weather_mode == "🌧️ Force Rainy" else 0
+        )
+        
+        time_mapping = {
+            "☀️ Day": 0,
+            "🌆 Evening": 1,
+            "🌙 Night": 2
+        }
+        
+        if time_mode == "🎲 Auto Random Time":
+            preview_env.current_time_of_day = random.choice([0, 1, 2])
+        else:
+            preview_env.current_time_of_day = time_mapping[time_mode]
+        
         preview_env.selected_food = chosen_food
 
         preview_fig = render_campus_map(
@@ -695,7 +747,8 @@ elif st.session_state.page == "tracking":
         logs.append(f"Step {step_num}: {log_line} | Reward: {reward:+} pts")
 
         with hud_placeholder.container():
-            m1, m2, m3, m4 = st.columns(4)
+
+            m1, m2, m3, m4, m5 = st.columns(5)
         
             m1.metric("🏆 Current Score", f"{total_score} pts")
         
@@ -720,7 +773,14 @@ elif st.session_state.page == "tracking":
                 "Rainy 🌧️" if env.current_weather == 1 else "Sunny ☀️"
             )
         
+            time_labels = ["Day ☀️", "Evening 🌆", "Night 🌙"]
+        
             m4.metric(
+                "🕒 Time of Day",
+                time_labels[env.current_time_of_day]
+            )
+        
+            m5.metric(
                 "🚧 Moving Obstacles",
                 f"{len(env.pedestrian_positions) + len(env.car_positions)}"
             )
