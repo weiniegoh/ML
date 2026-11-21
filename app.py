@@ -336,6 +336,124 @@ def place_icon(ax, da, x, y, dx=0, dy=0, zorder=10):
     ax.add_artist(ab)
 
 
+def draw_campus_background(ax):
+    """Draw an illustrative top-down campus background."""
+
+    # 1. Grass background
+    ax.add_patch(
+        Rectangle(
+            (-28, 2), 130, 101,
+            facecolor="#b8d99b",
+            edgecolor="none",
+            zorder=0
+        )
+    )
+
+    # 2. Subtle green spaces
+    green_spaces = [
+        (5, 88, 13, 7),
+        (39, 82, 10, 5),
+        (47, 49, 8, 6),
+        (70, 12, 12, 6),
+        (4, 5, 9, 5),
+        (88, 72, 9, 5)
+    ]
+
+    for x, y, w, h in green_spaces:
+        ax.add_patch(
+            FancyBboxPatch(
+                (x, y), w, h,
+                boxstyle="round,pad=0.3,rounding_size=2",
+                facecolor="#a5cf85",
+                edgecolor="none",
+                alpha=0.8,
+                zorder=0.3
+            )
+        )
+
+    # 3. Building footprints (illustrative positions)
+    buildings = [
+        ("DK4", 3, 57, 13, 7),
+        ("RIMBA", 17, 27, 11, 7),
+        ("BLOCK C", 29, 48, 12, 7),
+        ("LIBRARY", 38, 64, 13, 7),
+        ("DTAR", 53, 68, 13, 7),
+        ("HOSTEL", 67, 83, 14, 7),
+        ("FM / CITC", 3, 14, 13, 7),
+        ("SPORT COMPLEX", 43, 5, 17, 7),
+        ("EAST CAMPUS", 84, 29, 13, 7),
+        ("CAFE AREA", 84, 68, 12, 7)
+    ]
+
+    for name, x, y, w, h in buildings:
+
+        # Main building footprint
+        ax.add_patch(
+            FancyBboxPatch(
+                (x, y), w, h,
+                boxstyle="round,pad=0.25,rounding_size=1.2",
+                facecolor="#d6c6a5",
+                edgecolor="#806b50",
+                linewidth=1.5,
+                zorder=0.6
+            )
+        )
+
+        # Inner rooftop section
+        ax.add_patch(
+            Rectangle(
+                (x + 1, y + 1),
+                w - 2, h - 2,
+                facecolor="#b8a487",
+                edgecolor="#9a866a",
+                linewidth=0.8,
+                zorder=0.7
+            )
+        )
+
+        # Building name
+        ax.text(
+            x + w / 2,
+            y + h / 2,
+            name,
+            fontsize=6.5,
+            fontweight="bold",
+            color="#493c2d",
+            ha="center",
+            va="center",
+            zorder=0.8
+        )
+
+    # 4. Decorative trees
+    tree_positions = [
+        (4, 83), (20, 65), (25, 57), (47, 75),
+        (58, 83), (88, 88), (96, 78), (5, 40),
+        (16, 15), (35, 10), (68, 10), (76, 18),
+        (94, 17), (96, 56), (72, 58), (51, 57)
+    ]
+
+    for x, y in tree_positions:
+        ax.add_patch(
+            Circle(
+                (x, y), 1.5,
+                facecolor="#388e3c",
+                edgecolor="#246b2b",
+                linewidth=0.7,
+                zorder=0.9
+            )
+        )
+
+        ax.add_patch(
+            Circle(
+                (x - 0.4, y + 0.4), 0.5,
+                facecolor="#70ad52",
+                edgecolor="none",
+                zorder=1
+            )
+        )
+
+
+
 def render_campus_map(env, visited_nodes, current_node, target_node,
                       score, step_num, status_text, show_obstacles=True,
                       prev_positions=None):
@@ -345,7 +463,10 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
 
     fig, ax = plt.subplots(figsize=(13, 8.2), facecolor=bg_color)
     ax.set_facecolor(bg_color)
-
+    
+    # 3.0 Campus background
+    draw_campus_background(ax)
+    
     # 3.1 Road connections
     drawn_edges = set()
     for u, neighbors in env.graph.items():
