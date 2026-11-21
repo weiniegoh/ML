@@ -1,1004 +1,1061 @@
-import gymnasium as gym
-from gymnasium import spaces
-import numpy as np
+import html
+import os
 import random
-import heapq
-
-
-class CampusDeliveryEnv(gym.Env):
-    metadata = {"render_modes": []}
-
-    def __init__(self, max_steps=80, obstacle_mode="random", contact_mode="retreat",
-                 allow_wait=True, stay_prob=0.2, retreat_penalty=-3):
-        super().__init__()
-        if obstacle_mode not in ("random", "mixed", "routes"):
-            raise ValueError("obstacle_mode must be 'random', 'mixed' or 'routes'.")
-        if contact_mode not in ("retreat", "collision"):
-            raise ValueError("contact_mode must be 'retreat' or 'collision'.")
-        if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps <= 0:
-            raise ValueError("max_steps must be a positive integer.")
-        if isinstance(stay_prob, bool) or not isinstance(stay_prob, (int, float)) or not 0 <= stay_prob <= 1:
-            raise ValueError("stay_prob must be between 0 and 1.")
-        if isinstance(retreat_penalty, bool) or not isinstance(retreat_penalty, (int, float)):
-            raise ValueError("retreat_penalty must be numeric.")
-        if not isinstance(allow_wait, bool):
-            raise ValueError("allow_wait must be True or False.")
-
-        self.max_steps = max_steps
-        self.obstacle_mode = obstacle_mode
-        self.contact_mode = contact_mode
-        self.allow_wait = allow_wait
-        self.stay_prob = float(stay_prob)
-        self.retreat_penalty = retreat_penalty
-
-        self.steps = 0
-        self._episode_over = False
-        self.all_nodes = list(range(36))
-        self.node_names = {0:"Red Bricks",1:"DK4",2:"Rimba",3:"Block C",4:"Yum Yum",5:"Arena",6:"Block M",7:"Library",8:"Roof Top D",9:"Hostel",10:"Block Q (West Slope)",11:"DK W",12:"Carpark C",13:"Roof Top C",14:"DKABE",15:"Roof Top E",16:"Clubhouse",17:"Block W",18:"Block V",19:"DTAR",20:"Swimming Pool",21:"Sport Complex",22:"FM (CITC)",23:"Roof Top A",24:"Bus Stop A",25:"Carpark A",26:"DSA",27:"Basketball Court",28:"Roof Top B",29:"Car Park B",30:"Casaurina Cafe",31:"East Slope",32:"Bus Stop B",33:"Roof Top F",34:"Roof Top G",35:"Carpark D"}
-        self.node_coords = {
-            0: (6, 48), 1: (15, 48), 2: (21, 38), 3: (32, 38),
-            4: (43, 38), 5: (58, 25), 6: (43, 47), 7: (43, 56),
-            8: (60, 90), 9: (80, 92), 10: (22, 80), 11: (35, 83),
-            12: (71, 25), 13: (69, 34), 14: (73, 43), 15: (76, 68),
-            16: (64, 57), 17: (67, 50), 18: (67, 43), 19: (63, 37),
-            20: (63, 64), 21: (63, 72), 22: (15, 23), 23: (12, 12),
-            24: (25, 9), 25: (26, 23), 26: (35, 24), 27: (45, 16),
-            28: (51, 33), 29: (54, 56), 30: (94, 61), 31: (93, 52),
-            32: (87, 45), 33: (82, 52), 34: (81, 41), 35: (84, 76)
-        }
-        self.graph = {0:[1],1:[0,2,10],2:[1,3,26],3:[2,4],4:[3,6,26,27,28],5:[12,13,19,27,28],6:[4,7],7:[6,8,29],8:[7,9,11,15,21,35],9:[8,15,35],10:[1,11],11:[10,8],12:[5,14],13:[5,14],14:[12,13,15,33,34],15:[8,9,14,33],16:[17,20,29],17:[16,18],18:[17,19],19:[18,5],20:[16,21],21:[20,8],22:[23,25],23:[22,24],24:[23,26,27],25:[22,26],26:[2,4,24,25,27],27:[4,5,24,26],28:[4,5],29:[7,16],30:[31,35],31:[30,32,33],32:[31,34],33:[14,15,31],34:[14,32],35:[8,9,30]}
-        for node, neighbours in self.graph.items():
-            for neighbour in neighbours:
-                assert node in self.graph[neighbour], f"Graph is not bidirectional: {node} -> {neighbour}"
-        assert set(self.graph.keys()) == set(self.all_nodes)
-
-        self.start_locations = [0, 4, 16, 22, 30]
-        self.target_destinations = [5, 9, 2]
-        self.food_menus = {0:["Nasi Lemak","Roti Canai","Teh Tarik"],4:["Chicken Rice","Wantan Mee","Mixed Rice"],16:["Club Sandwich","Burger & Fries","Iced Lemon Tea"],22:["Japanese Bento","Onigiri","Oden"],30:["Western Chicken Chop","Fried Kuey Teow","Iced Coffee"]}
-        self.uncovered_paths = {frozenset({1,10}),frozenset({10,11}),frozenset({27,5}),frozenset({5,12}),frozenset({12,14}),frozenset({22,25}),frozenset({25,26}),frozenset({7,29}),frozenset({29,16}),frozenset({30,35}),frozenset({35,9}),frozenset({35,8})}
-        self.crowd_level = {7:1.5,6:1.5,3:1.5,26:1.5,14:1.5,4:1.8}
-        self.pedestrian_zones = {0,1,3,4,5,6,7,14,16,20,21,24,26,27,28,30,31,32}
-        self.car_zones = {3,4,5,8,10,12,21,23,25,26,27,28,29,33,34,35}
-        self.pedestrian_routes = [[3, 4]]
-        self.car_routes = [[4, 27, 5, 28]]
-        self.pedestrian_positions = [3, 6]
-        self.car_positions = [4, 12]
-        self.pedestrian_route_indices = [0]
-        self.car_route_indices = [0]
-        self.pedestrian_prev = [None, None]
-        self.car_prev = [None, None]
-
-        # "routes" mode: obstacles travel between hotspots along shortest paths
-        # (restaurants, library, arena, bus stops / car parks, main roads),
-        # wait there for a few steps, then pick a new hotspot.
-        self.pedestrian_hotspots = [0, 4, 5, 7, 14, 16, 21, 24, 26, 30, 32]
-        self.car_hotspots = [3, 4, 5, 8, 12, 21, 25, 26, 27, 35]
-        self.route_dwell = {"ped": (1, 3), "car": (1, 2)}  # waiting steps at a hotspot
-        assert set(self.pedestrian_hotspots) <= self.pedestrian_zones
-        assert set(self.car_hotspots) <= self.car_zones
-        self._reset_route_state()
-
-        self.longer_paths = {frozenset({23,24}):-3,frozenset({24,27}):-2,frozenset({1,10}):-2,frozenset({7,8}):-2,frozenset({14,15}):-2,frozenset({30,35}):-2}
-        self.action_space = spaces.Discrete(37)
-        self.observation_mode = "tabular"
-        self.observation_space = spaces.Tuple((
-            spaces.Discrete(36),  # Current location
-            spaces.Discrete(36),  # Destination
-            spaces.Discrete(2),   # Weather
-            spaces.Discrete(3),   # Time of day
-            spaces.Discrete(3)    # Traffic
-        ))
-        self.current_location = None
-        self.target_destination = None
-        self.current_weather = None
-        self.current_time_of_day = None
-        self.current_traffic = None
-        self.selected_food = None
-        self.rain_safe_return = None
-
-    # ------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------
-
-    def _choice(self, seq):
-        return seq[int(self.np_random.integers(len(seq)))]
-
-    
-    def valid_actions(self, location=None):
-        loc = self.current_location if location is None else location
-
-        if loc is None or loc not in self.graph:
-            raise ValueError("Invalid location (did you call reset() first?).")
-
-        actions = list(self.graph[loc])
-
-        # Sunny: all neighbouring roads are allowed.
-        if self.current_weather != 1:
-            return actions + ([36] if self.allow_wait else [])
-
-        occupied = self.occupied_nodes()
-
-        # Identify covered roads.
-        covered_actions = [
-            node for node in actions
-            if frozenset({loc, node}) not in self.uncovered_paths
-        ]
-
-        # Covered roads that are not blocked by obstacles.
-        safe_covered_actions = [
-            node for node in covered_actions
-            if node not in occupied
-        ]
-
-        if safe_covered_actions:
-            result = safe_covered_actions
-
-        elif self.rain_safe_return is not None:
-            if (
-                self.rain_safe_return in actions
-                and self.rain_safe_return not in self.occupied_nodes()
-            ):
-                result = [self.rain_safe_return]
-            else:
-                result = []
-
-        elif covered_actions:
-            result = []
-
-        else:
-            # No covered road and no previous safe location.
-            # Allow an uncovered road as a last resort.
-            result = [
-                node for node in actions
-                if node not in occupied
-            ]
-
-        if self.allow_wait:
-            result.append(36)
-
-        return result
-
-    def obstacle_counts(self):
-        """Return the number of pedestrians and cars for each time period."""
-        counts = {
-            0: (2, 2),  # Day
-            1: (3, 2),  # Evening
-            2: (1, 1)   # Night
-        }
-
-        return counts[self.current_time_of_day]
-
-    def obstacle_prob(self, node):
-        base = 0.25 if self.current_weather == 0 else 0.35
-
-        # Time-of-day traffic risk
-        time_factor = {
-            0: 1.0,   # Day
-            1: 1.2,   # Evening: busier campus
-            2: 0.8    # Night: fewer pedestrians and vehicles
-        }[self.current_time_of_day]
-
-        return min(
-            0.6,
-            base * time_factor * self.crowd_level.get(node, 1.0)
-        )
-
-
-    def visibility_penalty(self):
-        return {
-            0: 0,    # Day
-            1: -1,   # Evening
-            2: -2    # Night
-        }[self.current_time_of_day]
-
-    def edge_cost(self, u, v):
-        edge = frozenset({u, v})
-        cost = -self.longer_paths.get(edge, -1)
-
-        if self.current_weather == 1 and edge in self.uncovered_paths:
-            cost += 15
-
-        if v != self.target_destination and (
-            v in self.pedestrian_zones or v in self.car_zones
-        ):
-            p = self.obstacle_prob(v)
-            cost += 2 * p / (1 - p)
-
-        cost -= self.visibility_penalty()
-
-        return cost
-
-    def dijkstra_reference_action(self, safety_margin=1):
-        """Map-based benchmark (NOT an RL agent, and not truly optimal).
-        Uses Dijkstra costs, then picks the cheapest neighbour that is not
-        blocked. A neighbour is blocked if someone stands on it or, with
-        safety_margin=1, next to it."""
-        if self.current_location is None:
-            raise RuntimeError("Call reset() first.")
-        dist = {node: float("inf") for node in self.all_nodes}
-        dist[self.target_destination] = 0
-        pq = [(0, self.target_destination)]
-        while pq:
-            d, u = heapq.heappop(pq)
-            if d > dist[u]:
-                continue
-            for v in self.graph[u]:
-                nd = d + self.edge_cost(v, u)
-                if nd < dist[v]:
-                    dist[v] = nd
-                    heapq.heappush(pq, (nd, v))
-
-        loc = self.current_location
-        occupied = self.occupied_nodes()
-        danger = set(occupied)
-        if safety_margin >= 1:
-            for n in occupied:
-                danger.update(self.graph[n])
-
-        ranked = sorted(self.graph[loc], key=lambda n: self.edge_cost(loc, n) + dist[n])
-        for n in ranked:
-            if (n not in danger) or (n == self.target_destination and n not in occupied):
-                return n
-        for n in ranked:
-            if n not in occupied:
-                return n
-        return 36 if self.allow_wait else ranked[0]
-
-    optimal_action = dijkstra_reference_action  # old name kept as an alias
-
-    # ------------------------------------------------------------
-    # Observations
-    # ------------------------------------------------------------
-
-    def set_observation_mode(self, mode):
-        if mode not in ["tabular", "full"]:
-            raise ValueError("Mode must be 'tabular' or 'full'.")
-
-        self.observation_mode = mode
-
-        if mode == "tabular":
-            self.observation_space = spaces.Tuple((
-                spaces.Discrete(36),
-                spaces.Discrete(36),
-                spaces.Discrete(2),
-                spaces.Discrete(3),
-                spaces.Discrete(3)
-            ))
-        else:
-            self.observation_space = spaces.Tuple((
-                spaces.Discrete(36),
-                spaces.Discrete(36),
-                spaces.Discrete(2),
-                spaces.Discrete(3),
-                spaces.Discrete(36),
-                spaces.Discrete(36),
-                spaces.Discrete(36),
-                spaces.Discrete(36)
-            ))
-
-    def _get_tabular_obs(self):
-        nearby_nodes = [self.current_location] + self.graph[self.current_location]
-
-        pedestrian_nearby = any(
-            pos in nearby_nodes for pos in self.pedestrian_positions
-        )
-        car_nearby = any(
-            pos in nearby_nodes for pos in self.car_positions
-        )
-
-        if car_nearby:
-            traffic = 2
-        elif pedestrian_nearby:
-            traffic = 1
-        else:
-            traffic = 0
-
-        return (
-            int(self.current_location),
-            int(self.target_destination),
-            int(self.current_weather),
-            int(self.current_time_of_day),
-            int(traffic)
-        )
-
-    def _get_full_obs(self):
-        ped_positions = self.pedestrian_positions + [0, 0]
-        car_positions = self.car_positions + [0, 0]
-
-        return (
-            int(self.current_location),
-            int(self.target_destination),
-            int(self.current_weather),
-            int(self.current_time_of_day),
-            int(ped_positions[0]),
-            int(ped_positions[1]),
-            int(car_positions[0]),
-            int(car_positions[1])
-        )
-
-    def _get_obs(self):
-        if self.observation_mode == "tabular":
-            return self._get_tabular_obs()
-        return self._get_full_obs()
-
-    def _get_info(self, outcome="reset", rain_violation=False):
-        traffic_map = {
-            0: "Clear",
-            1: "Pedestrian Detected",
-            2: "Car Detected"
-        }
-
-        return {
-            "location_str": self.node_names[self.current_location],
-            "target_str": self.node_names[self.target_destination],
-            "food_item": self.selected_food,
-            "weather_str": "Sunny" if self.current_weather == 0 else "Rainy",
-            "traffic_str": traffic_map[self.current_traffic],
-            "time_of_day_str": ["Day", "Evening", "Night"][self.current_time_of_day],
-            "outcome": outcome,
-            "rain_violation": rain_violation
-        }
-
-    # ------------------------------------------------------------
-    # Obstacle helpers
-    # ------------------------------------------------------------
-
-    def _hops_from(self, start):
-        hops = {start: 0}
-        queue = [start]
-        for u in queue:
-            for v in self.graph[u]:
-                if v not in hops:
-                    hops[v] = hops[u] + 1
-                    queue.append(v)
-        return hops
-
-    def _zone_component_size(self, zone):
-        size, seen = {}, set()
-        for n in zone:
-            if n in seen:
-                continue
-            comp, queue = {n}, [n]
-            for u in queue:
-                for v in self.graph[u]:
-                    if v in zone and v not in comp:
-                        comp.add(v)
-                        queue.append(v)
-            seen |= comp
-            for c in comp:
-                size[c] = len(comp)
-        return size
-
-    def _spawn_walkers(self, zone, hotspots=None, count=2):
-        """Spawn the requested number of obstacles inside their allowed zones."""
-        hops = self._hops_from(self.current_location)
-        sizes = self._zone_component_size(zone)
-
-        eligible = []
-
-        if hotspots is not None:
-            eligible = sorted(
-                n for n in hotspots
-                if n in zone and hops.get(n, 99) >= 2
-                and sizes.get(n, 0) >= 3
-            )
-
-        if len(eligible) < count:
-            eligible = sorted(
-                n for n in zone
-                if hops.get(n, 99) >= 2 and sizes.get(n, 0) >= 3
-            )
-
-        if len(eligible) < count:
-            eligible = sorted(
-                n for n in zone if hops.get(n, 99) >= 2
-            )
-
-        if len(eligible) < count:
-            eligible = sorted(
-                n for n in zone if n != self.current_location
-            )
-
-        if len(eligible) < count:
-            raise ValueError("Not enough eligible nodes to spawn obstacles.")
-
-        picks = self.np_random.choice(
-            eligible, size=count, replace=False
-        )
-
-        return [int(n) for n in picks]
-
-    def _walker_step(self, pos, prev, zone):
-        """One random-walk step inside `zone`. Always uses exactly two random
-        draws, so every agent sees identical obstacle movement per seed."""
-        options = [n for n in self.graph[pos] if n in zone]
-        # Obstacle activity changes with time of day
-        if self.current_time_of_day == 0:       # Day
-            stay_probability = self.stay_prob
-        elif self.current_time_of_day == 1:     # Evening: more active
-            stay_probability = max(0.05, self.stay_prob - 0.10)
-        else:                                   # Night: less active
-            stay_probability = min(0.80, self.stay_prob + 0.15)
-
-        pause = self.np_random.random() < stay_probability
-        u = self.np_random.random()
-        if not options:
-            return pos, prev
-        forward = [n for n in options if n != prev] or options
-        weights = np.array([self.crowd_level.get(n, 1.0) for n in forward], dtype=float)
-        cum = np.cumsum(weights / weights.sum())
-        nxt = forward[min(int(np.searchsorted(cum, u, side="right")), len(forward) - 1)]
-        return (pos, prev) if pause else (nxt, pos)
-
-    def _move_walkers(self):
-        for i in range(len(self.pedestrian_positions)):
-            self.pedestrian_positions[i], self.pedestrian_prev[i] = (
-                self._walker_step(
-                    self.pedestrian_positions[i],
-                    self.pedestrian_prev[i],
-                    self.pedestrian_zones
-                )
-            )
-
-        for i in range(len(self.car_positions)):
-            self.car_positions[i], self.car_prev[i] = (
-                self._walker_step(
-                    self.car_positions[i],
-                    self.car_prev[i],
-                    self.car_zones
-                )
-            )
-
-    def _move_fixed_obstacles(self):
-        pedestrian_route = self.pedestrian_routes[0]
-        self.pedestrian_route_indices[0] = (self.pedestrian_route_indices[0] + 1) % len(pedestrian_route)
-        self.pedestrian_positions[0] = pedestrian_route[self.pedestrian_route_indices[0]]
-        car_route = self.car_routes[0]
-        self.car_route_indices[0] = (self.car_route_indices[0] + 1) % len(car_route)
-        self.car_positions[0] = car_route[self.car_route_indices[0]]
-
-    def _move_random_obstacles(self):
-        for i in range(1, len(self.pedestrian_positions)):
-            self.pedestrian_positions[i], self.pedestrian_prev[i] = (
-                self._walker_step(
-                    self.pedestrian_positions[i],
-                    self.pedestrian_prev[i],
-                    self.pedestrian_zones
-                )
-            )
-
-        for i in range(1, len(self.car_positions)):
-            self.car_positions[i], self.car_prev[i] = (
-                self._walker_step(
-                    self.car_positions[i],
-                    self.car_prev[i],
-                    self.car_zones
-                )
-            )
-
-    # ---------------- "routes" mode ----------------
-
-    def _reset_route_state(self):
-        self._route = {
-            "ped": [
-                {"goal": None, "path": [], "dwell": 0}
-                for _ in range(len(self.pedestrian_positions))
-            ],
-            "car": [
-                {"goal": None, "path": [], "dwell": 0}
-                for _ in range(len(self.car_positions))
-            ],
-        }
-
-    def _zone_path(self, start, goal, zone):
-        """Shortest path (list of nodes after `start`) staying inside `zone`; [] if none."""
-        if start == goal:
-            return []
-        prev, queue = {start: None}, [start]
-        for u in queue:
-            if u == goal:
-                break
-            for v in self.graph[u]:
-                if v in zone and v not in prev:
-                    prev[v] = u
-                    queue.append(v)
-        if goal not in prev:
-            return []
-        path, n = [], goal
-        while n != start:
-            path.append(n)
-            n = prev[n]
-        return path[::-1]
-
-    
-    def _route_step(self, kind, i):
-        """One purposeful step: wait at a hotspot, else follow the planned path,
-        else pick a new hotspot and start walking."""
-
-        if kind == "ped":
-            zone = self.pedestrian_zones
-            hotspots = self.pedestrian_hotspots
-            pos = self.pedestrian_positions[i]
-        else:
-            zone = self.car_zones
-            hotspots = self.car_hotspots
-            pos = self.car_positions[i]
-
-        st = self._route[kind][i]
-
-        u_goal = self.np_random.random()
-        u_dwell = self.np_random.random()
-
-        if st["dwell"] > 0:
-            st["dwell"] -= 1
-            return pos
-
-        if not st["path"]:
-            paths = {}
-
-            for h in hotspots:
-                if h != pos:
-                    p = self._zone_path(pos, h, zone)
-                    if p:
-                        paths[h] = p
-
-            cands = list(paths)
-
-            if not cands:
-                return pos
-
-            weights = np.array(
-                [self.crowd_level.get(h, 1.0) for h in cands],
-                dtype=float
-            )
-
-            cum = np.cumsum(weights / weights.sum())
-
-            goal = cands[
-                min(
-                    int(np.searchsorted(cum, u_goal, side="right")),
-                    len(cands) - 1
-                )
-            ]
-
-            st["goal"] = goal
-            st["path"] = paths[goal]
-
-        nxt = st["path"].pop(0)
-
-        if not st["path"]:  # Obstacle has arrived at its hotspot
-
-            if self.current_time_of_day == 0:       # Day
-                dwell_ranges = {
-                    "ped": (1, 3),
-                    "car": (1, 2)
-                }
-
-            elif self.current_time_of_day == 1:     # Evening
-                dwell_ranges = {
-                    "ped": (0, 2),
-                    "car": (0, 2)
-                }
-
-            else:                                   # Night
-                dwell_ranges = {
-                    "ped": (2, 4),
-                    "car": (2, 3)
-                }
-
-            lo, hi = dwell_ranges[kind]
-
-            st["dwell"] = lo + min(
-                int(u_dwell * (hi - lo + 1)),
-                hi - lo
-            )
-
-            st["goal"] = None
-
-        return int(nxt)
-
-
-    def _move_routes(self):
-        for i in range(len(self.pedestrian_positions)):
-            old = self.pedestrian_positions[i]
-            self.pedestrian_positions[i] = self._route_step("ped", i)
-            self.pedestrian_prev[i] = old
-
-        for i in range(len(self.car_positions)):
-            old = self.car_positions[i]
-            self.car_positions[i] = self._route_step("car", i)
-            self.car_prev[i] = old
-
-    def obstacle_intents(self):
-        """What each obstacle is doing (for display): node, goal (or None), waiting."""
-        out = {}
-        for kind, pos in (("ped", self.pedestrian_positions), ("car", self.car_positions)):
-            out[kind] = [{"node": pos[i],
-                          "goal": self._route[kind][i]["goal"],
-                          "waiting": self._route[kind][i]["dwell"] > 0}
-                         for i in range(len(pos))]
-        return out
-
-    def _move_obstacles(self):
-        if self.obstacle_mode == "random":
-            self._move_walkers()
-        elif self.obstacle_mode == "routes":
-            self._move_routes()
-        else:
-            self._move_fixed_obstacles()
-            self._move_random_obstacles()
-
-    def occupied_nodes(self):
-        return set(self.pedestrian_positions) | set(self.car_positions)
-
-    # ------------------------------------------------------------
-    # Reset
-    # ------------------------------------------------------------
-
-    def reset(self, seed=None, options=None):
-        """Optional customer order: {'start', 'target', 'food', 'weather', 'time_of_day'}."""
-        super().reset(seed=seed)
-
-        options = {} if options is None else options
-        if not isinstance(options, dict):
-            raise TypeError("Options must be a dictionary.")
-        unknown = set(options) - {
-            "start", "target", "food", "weather", "time_of_day"
-        }
-        if unknown:
-            raise ValueError(f"Unknown reset options: {unknown}")
-        if "start" in options and options["start"] not in self.start_locations:
-            raise ValueError("Invalid starting restaurant.")
-        if "target" in options and options["target"] not in self.target_destinations:
-            raise ValueError("Invalid target destination.")
-        if "weather" in options and options["weather"] not in (0, 1):
-            raise ValueError("Weather must be 0 (Sunny) or 1 (Rainy).")
-        if "time_of_day" in options:
-            value = options["time_of_day"]
-
-            if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
-                raise ValueError("Time of day must be 0 (Day), 1 (Evening) or 2 (Night).")
-
-            if value not in (0, 1, 2):
-                raise ValueError("Time of day must be 0 (Day), 1 (Evening) or 2 (Night).")
-
-        self.steps = 0
-        self._episode_over = False
-        self.rain_safe_return = None
-
-        # Destination
-        self.target_destination = (options["target"] if "target" in options
-                                   else self._choice(self.target_destinations))
-
-        # Starting restaurant
-        if "start" in options:
-            self.current_location = options["start"]
-        elif "food" in options:
-            candidates = [r for r in self.start_locations if options["food"] in self.food_menus[r]]
-            if not candidates:
-                raise ValueError("No restaurant serves that food item.")
-            self.current_location = self._choice(candidates)
-        else:
-            self.current_location = self._choice(self.start_locations)
-        
-        # Weather
-        self.current_weather = (
-            options["weather"]
-            if "weather" in options
-            else self._choice([0, 1])
-        )
-
-        # Time of day: randomly selected during training unless specified
-        self.current_time_of_day = (
-            int(options["time_of_day"])
-            if "time_of_day" in options
-            else self._choice([0, 1, 2])
-        )
-
-        # Food
-        if "food" in options:
-            self.selected_food = options["food"]
-
-            if self.selected_food not in self.food_menus[self.current_location]:
-                raise ValueError(
-                    "Food item is not available at the selected restaurant."
-                )
-        else:
-            self.selected_food = self._choice(
-                self.food_menus[self.current_location]
-            )
-
-
-                # Determine obstacle numbers based on time of day
-        pedestrian_count, car_count = self.obstacle_counts()
-
-        self.pedestrian_prev = [None] * pedestrian_count
-        self.car_prev = [None] * car_count
-
-        # Spawn pedestrians and cars
-        if self.obstacle_mode == "random":
-            self.pedestrian_positions = self._spawn_walkers(
-                self.pedestrian_zones,
-                count=pedestrian_count
-            )
-
-            self.car_positions = self._spawn_walkers(
-                self.car_zones,
-                count=car_count
-            )
-
-        elif self.obstacle_mode == "routes":
-            self.pedestrian_positions = self._spawn_walkers(
-                self.pedestrian_zones,
-                self.pedestrian_hotspots,
-                count=pedestrian_count
-            )
-
-            self.car_positions = self._spawn_walkers(
-                self.car_zones,
-                self.car_hotspots,
-                count=car_count
-            )
-
-        else:
-            pedestrian_route = self.pedestrian_routes[0]
-            car_route = self.car_routes[0]
-
-            ped_index = next(
-                (i for i, n in enumerate(pedestrian_route)
-                 if n != self.current_location), 0
-            )
-
-            car_index = next(
-                (i for i, n in enumerate(car_route)
-                 if n != self.current_location), 0
-            )
-
-            self.pedestrian_route_indices = [ped_index]
-            self.car_route_indices = [car_index]
-
-            self.pedestrian_positions = [
-                pedestrian_route[ped_index]
-            ] + self._spawn_walkers(
-                self.pedestrian_zones,
-                count=pedestrian_count - 1
-            )
-
-            self.car_positions = [
-                car_route[car_index]
-            ] + self._spawn_walkers(
-                self.car_zones,
-                count=car_count - 1
-            )
-
-        # Initialize route information for the spawned obstacles
-        self._reset_route_state()
-
-
-        # Update traffic and return the initial observation
-        self.current_traffic = self._get_tabular_obs()[4]
-
-        state = self._get_obs()
-        info = self._get_info("reset")
-
-        return state, info
-
-    # ------------------------------------------------------------
-    # Step
-    # ------------------------------------------------------------
-
-    def step(self, action):
-        if self.current_location is None:
-            raise RuntimeError("Call reset() before step().")
-        if self._episode_over:
-            raise RuntimeError("Episode has ended. Call reset() before step().")
-        if not self.action_space.contains(action):
-            raise ValueError(f"Invalid action: {action}")
-
-        action = int(action)
-        reward = 0
-        terminated = False
-        truncated = False
-        outcome = "move"
-        rain_violation = False
-        blocked_node = None
-        retreated = False
-        contact = None  # obstacle standing on the node the robot moves into
-
-        self.steps += 1
-
-        old_pedestrian_positions = self.pedestrian_positions.copy()
-        old_car_positions = self.car_positions.copy()
-        previous_location = self.current_location
-
-        # Robot action
-        if action == 36 and self.allow_wait:
-            reward = -2
-            outcome = "wait"
-
-        elif action not in self.valid_actions():
-            reward = -5
-            outcome = "invalid"
-
-        elif self.contact_mode == "retreat" and action in self.occupied_nodes():
-            reward = self.retreat_penalty
-            outcome = "retreat"
-            retreated = True
-            blocked_node = action
-
-        else:
-            # Record contact BEFORE obstacles move, so walking into someone
-            # cannot be avoided by them stepping away in the same tick.
-            if action in self.pedestrian_positions:
-                contact = "ped"
-            elif action in self.car_positions:
-                contact = "car"
-
-            path_edge = frozenset({self.current_location, action})
-
-            # Normal route movement reward
-            reward += self.longer_paths.get(path_edge, -1)
-
-            # Weather penalty
-            if self.current_weather == 1 and path_edge in self.uncovered_paths:
-                reward -= 15
-                rain_violation = True
-
-            # Reduced visibility penalty
-            # Reduced visibility penalty
-            reward += self.visibility_penalty()
-
-            # Track the previous safe location during rainy weather.
-            # Track the previous safe location during rainy weather.
-            if self.current_weather == 1:
-
-              if action == self.rain_safe_return:
-                  self.rain_safe_return = None
-
-              elif path_edge in self.uncovered_paths:
-                  if self.rain_safe_return is None:
-                      self.rain_safe_return = self.current_location
-
-              else:
-                  self.rain_safe_return = None
-
-            self.current_location = action
-
-        # Obstacles move
-        self._move_obstacles()
-
-        # Node collisions
-        if self.current_location in self.pedestrian_positions or contact == "ped":
-            reward -= 25
-            terminated = True
-            outcome = "ped_collision"
-        elif self.current_location in self.car_positions or contact == "car":
-            reward -= 50
-            terminated = True
-            outcome = "car_collision"
-
-        # Edge-swap collisions
-        if not terminated and self.current_location != previous_location:
-            for old_pos, new_pos in zip(old_pedestrian_positions, self.pedestrian_positions):
-                if previous_location == new_pos and self.current_location == old_pos:
-                    reward -= 25
-                    terminated = True
-                    outcome = "ped_collision"
-                    break
-            if not terminated:
-                for old_pos, new_pos in zip(old_car_positions, self.car_positions):
-                    if previous_location == new_pos and self.current_location == old_pos:
-                        reward -= 50
-                        terminated = True
-                        outcome = "car_collision"
-                        break
-
-        # Delivery success
-        if not terminated and self.current_location == self.target_destination:
-            reward += 100
-            terminated = True
-            outcome = "goal"
-
-        self.current_traffic = self._get_tabular_obs()[4]
-
-        if not terminated and self.steps >= self.max_steps:
-            truncated = True
-
-        self._episode_over = terminated or truncated
-
-        info = self._get_info(outcome, rain_violation)
-        info["blocked_node"] = blocked_node
-        info["retreated"] = retreated
-        info["previous_location"] = previous_location
-        info["current_location"] = self.current_location
-        info["robot_moved"] = self.current_location != previous_location
-
-        return self._get_obs(), reward, terminated, truncated, info
-
-
-# ============================================================
-# EVALUATION
-# ============================================================
-
-TEST_SEED = 1000
-NUM_TEST_EPISODES = 1000
-
-
-def evaluate_agent(env, table=None, num_episodes=NUM_TEST_EPISODES, base_seed=TEST_SEED):
-    """Evaluate a Q-table (shape (36, 36, 2, 3, 3, 37)) or, if table=None, a random
-    valid-action baseline. The same seeds give every agent the same orders,
-    weather and obstacle movement."""
-    if num_episodes <= 0:
-        raise ValueError("num_episodes must be greater than zero.")
-    if table is not None:
-        env.set_observation_mode("tabular")
-        table = np.asarray(table)
-        if table.shape != (36, 36, 2, 3, 3, 37):
-            raise ValueError(f"Q-table must have shape (36, 36, 2, 3, 3, 37), got {table.shape}.")
-
-    rng = random.Random(base_seed)
-    success = ped_crashes = car_crashes = timeouts = 0
-    rainy_episodes = rain_compliant = retreats = 0
-    total_rewards, steps_for_success = [], []
-
-    for ep in range(num_episodes):
-        state, info = env.reset(seed=base_seed + ep)
-        terminated = truncated = False
-        ep_reward = ep_steps = 0
-        rain_violation = False
-        is_rainy = env.current_weather == 1
-        rainy_episodes += is_rainy
-
-        while not (terminated or truncated):
-            valid = env.valid_actions(state[0])
-            if table is not None:
-                values = table[state][valid]
-                best = np.flatnonzero(values == values.max())
-                action = valid[int(rng.choice(best))]
-            else:
-                action = rng.choice(valid)
-            state, reward, terminated, truncated, info = env.step(action)
-            ep_reward += reward
-            ep_steps += 1
-            rain_violation |= info["rain_violation"]
-            retreats += int(info["retreated"])
-
-        if info["outcome"] == "goal":
-            success += 1
-            steps_for_success.append(ep_steps)
-        elif info["outcome"] == "ped_collision":
-            ped_crashes += 1
-        elif info["outcome"] == "car_collision":
-            car_crashes += 1
-        elif truncated:
-            timeouts += 1
-        if is_rainy and not rain_violation:
-            rain_compliant += 1
-        total_rewards.append(ep_reward)
-
-    return {
-        "Success Rate (%)": success / num_episodes * 100,
-        "Collision Rate (%)": (ped_crashes + car_crashes) / num_episodes * 100,
-        "Pedestrian Crashes": ped_crashes,
-        "Car Crashes": car_crashes,
-        "Timeouts": timeouts,
-        "Retreats per Episode": retreats / num_episodes,
-        "Rain Roof Compliance (%)": (rain_compliant / rainy_episodes * 100) if rainy_episodes else None,
-        "Avg Reward": float(np.mean(total_rewards)),
-        "Avg Delivery Steps": float(np.mean(steps_for_success)) if steps_for_success else None,
+import time
+
+import numpy as np
+import streamlit as st
+import matplotlib
+from matplotlib.text import Text
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from matplotlib.lines import Line2D
+from matplotlib.offsetbox import AnnotationBbox, DrawingArea
+from matplotlib.patches import Circle, FancyBboxPatch, Polygon, Rectangle
+
+try:
+    from campus_environment import CampusDeliveryEnv
+except ImportError:
+    from campus_delivery_env import CampusDeliveryEnv
+
+
+# ==========================================
+# 0. SETTINGS
+# ==========================================
+
+STEP_DELAY = 0.6                 # seconds between animation frames
+USE_ANTI_BACKTRACKING = True     # must match the setting used in training
+OBSTACLE_MODE = "routes"         # must match OBSTACLE_MODE in q_learning_delivery.py
+Q_TABLE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "q_table.npy")
+
+
+# ==========================================
+# 1. PAGE CONFIGURATION & LIGHT-MODE STYLING
+# (the theme itself is forced to light by .streamlit/config.toml)
+# ==========================================
+
+st.set_page_config(
+    page_title="TAR UMT AI Food Delivery",
+    page_icon="🤖",
+    layout="wide"
+)
+
+st.markdown("""
+<style>
+    /* ---- Force a complete light look, independent of the user's/browser's
+       Streamlit theme (so no white-on-white text that only shows on hover) ---- */
+    :root { color-scheme: light; }
+
+    html, body, .stApp,
+    [data-testid="stAppViewContainer"], [data-testid="stMain"],
+    [data-testid="stHeader"], [data-testid="stToolbar"],
+    [data-testid="stBottom"], .main {
+        background-color: #f8fafc !important;
+        color: #1e293b !important;
+    }
+    [data-testid="stSidebar"], [data-testid="stSidebar"] > div {
+        background-color: #f1f5f9 !important;
     }
 
+    /* ---- Normal text ---- */
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
+    .stApp p, .stApp li, .stApp label,
+    .stApp [data-testid="stMarkdownContainer"],
+    .stApp [data-testid="stMarkdownContainer"] p,
+    .stApp [data-testid="stMarkdownContainer"] li,
+    .stApp [data-testid="stCaptionContainer"],
+    .stApp [data-testid="stWidgetLabel"],
+    .stApp [data-testid="stWidgetLabel"] p,
+    .stApp [data-testid="stHeader"] *,
+    .stApp [data-testid="stToolbar"] * {
+        color: #1e293b !important;
+    }
 
-if __name__ == "__main__":
-    env = CampusDeliveryEnv()
-    state, info = env.reset(seed=42)
+    /* ---- Dropdowns (selectbox) ---- */
+    .stApp [data-baseweb="select"] > div {
+        background-color: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+    }
+    .stApp [data-baseweb="select"] *,
+    .stApp [data-baseweb="select"] input {
+        color: #1e293b !important;
+        -webkit-text-fill-color: #1e293b !important;
+    }
+    .stApp [data-baseweb="select"] svg { fill: #475569 !important; }
 
-    print("Starting Restaurant:", info["location_str"])
-    print("Destination:", info["target_str"])
-    print("Selected Food:", info["food_item"])
-    print("Weather:", info["weather_str"])
-    print("Time of Day:", info["time_of_day_str"])
-    print("Traffic:", info["traffic_str"])
-    print("Initial State:", state)
-    print("Valid Actions:", env.valid_actions())
-    print("Obstacles:", env.pedestrian_positions, env.car_positions)
+    /* the opened list lives in a popover outside .stApp */
+    [data-baseweb="popover"], [data-baseweb="popover"] > div,
+    [data-baseweb="menu"], ul[role="listbox"] {
+        background-color: #ffffff !important;
+        color: #1e293b !important;
+    }
+    [data-baseweb="popover"] li, [data-baseweb="menu"] li,
+    ul[role="listbox"] li {
+        background-color: #ffffff !important;
+        color: #1e293b !important;
+    }
+    [data-baseweb="popover"] li *, [data-baseweb="menu"] li *,
+    ul[role="listbox"] li * {
+        color: #1e293b !important;
+    }
+    [data-baseweb="popover"] li:hover, ul[role="listbox"] li:hover,
+    ul[role="listbox"] li[aria-selected="true"] {
+        background-color: #e0f2fe !important;
+    }
+
+    /* ---- Radio buttons ---- */
+    .stApp [data-testid="stRadio"] label,
+    .stApp [data-testid="stRadio"] label *,
+    .stApp [data-testid="stRadio"] p {
+        color: #1e293b !important;
+    }
+
+    /* ---- Expander ---- */
+    .stApp [data-testid="stExpander"] {
+        background-color: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 10px;
+    }
+    .stApp [data-testid="stExpander"] summary,
+    .stApp [data-testid="stExpander"] summary *,
+    .stApp [data-testid="stExpander"] details,
+    .stApp [data-testid="stExpander"] [data-testid="stExpanderDetails"] * {
+        color: #1e293b !important;
+        background-color: transparent !important;
+    }
+    .stApp [data-testid="stExpander"] summary:hover {
+        background-color: #f1f5f9 !important;
+    }
+
+    /* ---- Info / warning / success / error boxes ----
+       The inner containers carry their own (dark) background, so every
+       layer is made white/transparent, otherwise dark text sits on dark. */
+    .stApp [data-testid="stAlert"],
+    .stApp [data-testid="stAlertContainer"],
+    .stApp [data-testid="stNotification"] {
+        background: #ffffff !important;
+        background-color: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        border-left: 5px solid #06b6d4 !important;
+        border-radius: 10px;
+    }
+    .stApp [data-testid="stAlert"] *,
+    .stApp [data-testid="stAlertContainer"] *,
+    .stApp [data-testid="stNotification"] * {
+        background: transparent !important;
+        background-color: transparent !important;
+        color: #1e293b !important;
+        -webkit-text-fill-color: #1e293b !important;
+    }
+    /* avoid a double border when the outer and inner box both match */
+    .stApp [data-testid="stAlert"] [data-testid="stAlertContainer"] {
+        border: none !important;
+    }
+
+    /* ---- Metric cards ---- */
+    .stApp [data-testid="stMetric"] {
+        background: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        border-left: 5px solid #06b6d4 !important;
+        border-radius: 10px;
+        padding: 10px 14px;
+    }
+    
+    /* Metric label and value */
+    .stApp [data-testid="stMetricLabel"],
+    .stApp [data-testid="stMetricLabel"] *,
+    .stApp [data-testid="stMetricValue"],
+    .stApp [data-testid="stMetricValue"] * {
+        color: #1e293b !important;
+        -webkit-text-fill-color: #1e293b !important;
+    }
+    
+    /* Metric delta (+/- points) */
+    .stApp [data-testid="stMetricDelta"],
+    .stApp [data-testid="stMetricDelta"] *,
+    .stApp [data-testid="stMetricDelta"] svg {
+        color: #334155 !important;
+        fill: #334155 !important;
+        -webkit-text-fill-color: #334155 !important;
+        opacity: 1 !important;
+    }
+
+    /* ---- Buttons: white text on the teal gradient (always visible) ---- */
+    .stApp div.stButton > button,
+    .stApp [data-testid="stBaseButton-secondary"],
+    .stApp [data-testid="stBaseButton-primary"] {
+        width: 100%;
+        background: linear-gradient(90deg, #0d9488 0%, #06b6d4 100%) !important;
+        border: none !important;
+        border-radius: 10px;
+        padding: 0.65rem 1rem;
+        font-weight: 700;
+    }
+    .stApp div.stButton > button,
+    .stApp div.stButton > button *,
+    .stApp div.stButton button [data-testid="stMarkdownContainer"] p,
+    .stApp [data-testid="stBaseButton-secondary"] *,
+    .stApp [data-testid="stBaseButton-primary"] * {
+        color: #ffffff !important;
+    }
+    .stApp div.stButton > button:hover,
+    .stApp [data-testid="stBaseButton-secondary"]:hover {
+        background: linear-gradient(90deg, #0f766e 0%, #0891b2 100%) !important;
+    }
+    
+</style>
+""", unsafe_allow_html=True)
+
+
+# ==========================================
+# 2. ENVIRONMENT & Q-TABLE
+# ==========================================
+
+env = CampusDeliveryEnv(obstacle_mode=OBSTACLE_MODE)
+
+
+NOTE_STYLES = {   # background, border, text
+    "info":    ("#e0f2fe", "#0ea5e9", "#0c4a6e"),
+    "success": ("#dcfce7", "#16a34a", "#14532d"),
+    "warning": ("#fef3c7", "#f59e0b", "#78350f"),
+    "error":   ("#fee2e2", "#dc2626", "#7f1d1d"),
+}
+
+
+def note(kind, text):
+    """Coloured message box (plain HTML, so it never depends on Streamlit internals)."""
+    bg, border, fg = NOTE_STYLES[kind]
+    st.markdown(
+        f'<div style="background:{bg};border:1px solid {border};'
+        f'border-left:6px solid {border};border-radius:10px;padding:14px 18px;'
+        f'margin:8px 0;color:{fg};font-weight:600;line-height:1.5;">'
+        f'{html.escape(text)}</div>',
+        unsafe_allow_html=True)
+
+
+def describe_obstacles(env):
+    """One line per obstacle: where it is and what it is doing (routes mode)."""
+    if env.obstacle_mode != "routes":
+        return ""
+    intents = env.obstacle_intents()
+    lines = []
+    for kind, label, icon in (("ped", "P", "🚶"), ("car", "C", "🚗")):
+        for i, it in enumerate(intents[kind]):
+            here = env.node_names[it["node"]]
+            if it["goal"] is not None:
+                what = f"heading to {env.node_names[it['goal']]}"
+            elif it["waiting"]:
+                what = "waiting"
+            else:
+                what = "choosing next stop"
+            lines.append(f"{icon} **{label}{i + 1}** at {here}: {what}")
+    return "  \n".join(lines)
+
+
+@st.cache_resource
+def load_q_table(path=Q_TABLE_PATH):
+    """Load the trained Q-table if it exists and has the correct shape."""
+    if not os.path.exists(path):
+        return None
+
+    table = np.load(path)
+
+    expected_shape = (36, 36, 2, 3, 3, 37)
+
+    if table.shape != expected_shape:
+        st.warning(
+            f"Q-table shape mismatch. Expected {expected_shape}, "
+            f"but received {table.shape}."
+        )
+        return None
+
+    return table
+
+
+# ==========================================
+# 3. 2D CAMPUS MAP RENDERER
+# ==========================================
+
+# ---- Vector icons (drawn in points, so they never get stretched by the map) ----
+
+def _round_box(x, y, w, h, r, fc, ec, lw=1.2):
+    return FancyBboxPatch((x, y), w, h, boxstyle=f"round,pad=0,rounding_size={r}",
+                          fc=fc, ec=ec, lw=lw)
+
+
+def icon_robot(scale=1.0):
+    k = scale
+    da = DrawingArea(30 * k, 38 * k, 0, 0)
+    for cx in (9, 21):                                          # wheels
+        da.add_artist(Circle((cx * k, 4 * k), 3.6 * k, fc="#334155", ec="white", lw=0.8))
+    da.add_artist(_round_box(6 * k, 6 * k, 18 * k, 11 * k, 2.5 * k, "#0e7490", "#164e63"))   # body
+    da.add_artist(Rectangle((8 * k, 9 * k), 14 * k, 3 * k, fc="#67e8f9", ec="none"))          # chest light
+    da.add_artist(Rectangle((14 * k, 29 * k), 2 * k, 5 * k, fc="#164e63", ec="none"))         # antenna
+    da.add_artist(Circle((15 * k, 35 * k), 2.4 * k, fc="#f97316", ec="#9a3412", lw=0.8))
+    da.add_artist(_round_box(4 * k, 17 * k, 22 * k, 12 * k, 3.5 * k, "#06b6d4", "#164e63", 1.5))  # head
+    for cx in (11, 19):                                         # eyes
+        da.add_artist(Circle((cx * k, 23 * k), 3 * k, fc="white", ec="#164e63", lw=0.8))
+        da.add_artist(Circle((cx * k, 23 * k), 1.3 * k, fc="#0f172a", ec="none"))
+    return da
+
+
+def icon_person(scale=1.0):
+    k = scale
+    da = DrawingArea(22 * k, 33 * k, 0, 0)
+    for lx in (6, 12):                                          # legs
+        da.add_artist(Rectangle((lx * k, 1 * k), 4 * k, 10 * k, fc="#a16207", ec="#713f12", lw=0.8))
+    da.add_artist(_round_box(3.5 * k, 9 * k, 15 * k, 13 * k, 5 * k, "#facc15", "#854d0e", 1.3))  # torso
+    da.add_artist(Circle((11 * k, 27.5 * k), 5 * k, fc="#fde68a", ec="#854d0e", lw=1.3))         # head
+    return da
+
+
+def icon_car(scale=1.0):
+    k = scale
+    da = DrawingArea(38 * k, 23 * k, 0, 0)
+    da.add_artist(Polygon([(10 * k, 13 * k), (13 * k, 21 * k), (27 * k, 21 * k), (30 * k, 13 * k)],
+                          closed=True, fc="#ef4444", ec="#7f1d1d", lw=1.3))                       # cabin
+    da.add_artist(Polygon([(13 * k, 14 * k), (15 * k, 19.5 * k), (19.5 * k, 19.5 * k), (19.5 * k, 14 * k)],
+                          closed=True, fc="#bae6fd", ec="none"))                                   # windows
+    da.add_artist(Polygon([(20.5 * k, 14 * k), (20.5 * k, 19.5 * k), (26 * k, 19.5 * k), (28 * k, 14 * k)],
+                          closed=True, fc="#bae6fd", ec="none"))
+    da.add_artist(_round_box(2 * k, 6 * k, 34 * k, 8 * k, 3 * k, "#ef4444", "#7f1d1d", 1.3))      # body
+    da.add_artist(Circle((33.5 * k, 10 * k), 1.5 * k, fc="#fef08a", ec="none"))                    # headlight
+    for cx in (11, 27):                                         # wheels
+        da.add_artist(Circle((cx * k, 6 * k), 4.2 * k, fc="#1f2937", ec="white", lw=0.8))
+        da.add_artist(Circle((cx * k, 6 * k), 1.6 * k, fc="#9ca3af", ec="none"))
+    return da
+
+
+def place_icon(ax, da, x, y, dx=0, dy=0, zorder=10):
+    """Put an icon at data point (x, y), shifted by (dx, dy) points."""
+    ab = AnnotationBbox(da, (x, y), xybox=(dx, dy), xycoords="data",
+                        boxcoords="offset points", frameon=False,
+                        box_alignment=(0.5, 0.5), pad=0)
+    ab.set_zorder(zorder)
+    ax.add_artist(ab)
+
+
+
+def draw_campus_background(ax):
+    """Draw the grass, landscaping and trees behind the campus map."""
+
+    # Grass background
+    ax.add_patch(
+        Rectangle(
+            (-28, 2), 130, 101,
+            facecolor="#b8d99b",
+            edgecolor="none",
+            zorder=0
+        )
+    )
+
+    # Green spaces
+    green_spaces = [
+        (5, 88, 13, 7),
+        (39, 82, 10, 5),
+        (47, 49, 8, 6),
+        (70, 12, 12, 6),
+        (4, 5, 9, 5),
+        (88, 72, 9, 5)
+    ]
+
+    for x, y, w, h in green_spaces:
+        ax.add_patch(
+            FancyBboxPatch(
+                (x, y), w, h,
+                boxstyle="round,pad=0.3,rounding_size=2",
+                facecolor="#a5cf85",
+                edgecolor="none",
+                alpha=0.8,
+                zorder=0.3
+            )
+        )
+
+    # Trees
+    tree_positions = [
+        (4, 83), (20, 65), (25, 57), (47, 75),
+        (58, 83), (88, 88), (96, 78), (5, 40),
+        (16, 15), (35, 10), (68, 10), (76, 18),
+        (94, 17), (96, 56), (72, 58), (51, 57)
+    ]
+
+    for x, y in tree_positions:
+        ax.add_patch(
+            Circle(
+                (x, y), 1.5,
+                facecolor="#388e3c",
+                edgecolor="#246b2b",
+                linewidth=0.7,
+                zorder=0.9
+            )
+        )
+
+        ax.add_patch(
+            Circle(
+                (x - 0.4, y + 0.4), 0.5,
+                facecolor="#70ad52",
+                edgecolor="none",
+                zorder=1
+            )
+        )
+
+
+
+
+
+def icon_waypoint(node_id, node_name=""):
+    """Draw small, box-free icons for campus locations."""
+
+    # Roof Top B: no icon
+    name = node_name.lower()
+    if "roof top" in name or "rooftop" in name:
+        return None
+
+    da = DrawingArea(30, 26, 0, 0)
+
+    canteens = {0, 4, 22, 30}
+    pools = {20}
+    carparks = {12, 25, 29, 35}
+    bus_stops = {24, 32}
+
+    if node_id in canteens or any(
+        word in name for word in ("canteen", "cafe", "yum yum", "red bricks")
+    ):
+        da.add_artist(Rectangle(
+            (5, 5), 20, 10, fc="#d97706", ec="#92400e", lw=0.8
+        ))
+        da.add_artist(Polygon(
+            [(3, 15), (27, 15), (24, 23), (6, 23)],
+            closed=True, fc="#fb923c", ec="#9a3412", lw=0.8
+        ))
+        for x in (8, 14, 20):
+            da.add_artist(Rectangle(
+                (x, 15), 3, 7, fc="#fff7ed", ec="none"
+            ))
+
+    elif node_id in pools or "swimming pool" in name:
+        da.add_artist(FancyBboxPatch(
+            (3, 5), 24, 17,
+            boxstyle="round,pad=0.2,rounding_size=3",
+            fc="#38bdf8", ec="#0369a1", lw=1
+        ))
+        for y in (10, 15):
+            da.add_artist(Line2D(
+                [7, 12, 17, 22], [y, y + 2, y, y + 2],
+                color="white", linewidth=1
+            ))
+
+    elif node_id in carparks or "car park" in name or "carpark" in name:
+        da.add_artist(FancyBboxPatch(
+            (5, 4), 20, 21,
+            boxstyle="round,pad=0.2,rounding_size=2",
+            fc="#2563eb", ec="#1e40af", lw=0.8
+        ))
+        da.add_artist(Text(
+            15, 14, "P", ha="center", va="center",
+            fontsize=17, fontweight="bold", color="white"
+        ))
+
+    elif node_id in bus_stops or "bus stop" in name:
+        da.add_artist(Rectangle(
+            (14, 3), 2, 15, fc="#475569", ec="none"
+        ))
+        da.add_artist(Rectangle(
+            (4, 16), 22, 9, fc="#0f766e", ec="#134e4a", lw=0.8
+        ))
+        da.add_artist(Text(
+            15, 20, "BUS", ha="center", va="center",
+            fontsize=6, fontweight="bold", color="white"
+        ))
+
+    elif "basketball" in name:
+        da.add_artist(Rectangle(
+            (3, 5), 24, 17, fc="#e9a15b", ec="#92400e", lw=1
+        ))
+        da.add_artist(Line2D(
+            [15, 15], [5, 22], color="white", linewidth=0.8
+        ))
+        da.add_artist(Circle(
+            (15, 13.5), 3.5, fc="none", ec="white", lw=0.8
+        ))
+
+    elif "library" in name:
+        for x, color in (
+            (5, "#2563eb"), (13, "#16a34a"), (21, "#f59e0b")
+        ):
+            da.add_artist(Rectangle(
+                (x, 5), 5 if x == 21 else 7, 18,
+                fc=color, ec="#334155", lw=0.8
+            ))
+
+    elif "hostel" in name:
+        da.add_artist(Rectangle(
+            (4, 7), 23, 3, fc="#64748b", ec="#334155", lw=0.8
+        ))
+        da.add_artist(Rectangle(
+            (5, 10), 21, 8, fc="#38bdf8", ec="#0369a1", lw=0.8
+        ))
+        da.add_artist(Rectangle(
+            (6, 14), 7, 5, fc="#f8fafc", ec="#64748b", lw=0.7
+        ))
+
+    else:
+        da.add_artist(Rectangle(
+            (5, 5), 20, 15, fc="#c4b49a", ec="#78664d", lw=0.9
+        ))
+        da.add_artist(Polygon(
+            [(3, 20), (15, 25), (27, 20)],
+            closed=True, fc="#8b7355", ec="#78664d", lw=0.8
+        ))
+        for x in (9, 18):
+            da.add_artist(Rectangle(
+                (x, 9), 5, 7, fc="#e0f2fe", ec="#64748b", lw=0.6
+            ))
+
+    return da
+
+
+
+
+
+def render_campus_map(env, visited_nodes, current_node, target_node,
+                      score, step_num, status_text, show_obstacles=True,
+                      prev_positions=None):
+
+    is_rainy = env.current_weather == 1
+    bg_color = "#e0f2fe" if is_rainy else "#f8fafc"
+
+    fig, ax = plt.subplots(figsize=(13, 8.2), facecolor=bg_color)
+    ax.set_facecolor(bg_color)
+    
+    # 3.0 Campus background
+    draw_campus_background(ax)
+    
+    # 3.1 Road connections
+    drawn_edges = set()
+    for u, neighbors in env.graph.items():
+        for v in neighbors:
+            edge = frozenset({u, v})
+            if edge in drawn_edges:
+                continue
+            drawn_edges.add(edge)
+            x1, y1 = env.node_coords[u]
+            x2, y2 = env.node_coords[v]
+            if edge in env.uncovered_paths:
+                ax.plot([x1, x2], [y1, y2], color="#eab308", linestyle="--",
+                        linewidth=2.6, alpha=0.9, zorder=1)
+            else:
+                ax.plot([x1, x2], [y1, y2], color="#64748b", linestyle="-",
+                        linewidth=2.2, alpha=0.8, zorder=1)
+
+    # 3.2 Robot's travelled route
+    for i in range(len(visited_nodes) - 1):
+        x1, y1 = env.node_coords[visited_nodes[i]]
+        x2, y2 = env.node_coords[visited_nodes[i + 1]]
+        ax.plot([x1, x2], [y1, y2], color="#06b6d4", linewidth=5,
+                alpha=0.95, zorder=3)
+
+    
+    
+    
+    
+    
+    # 3.3 Waypoint icons and labels
+    for node_id, (x, y) in env.node_coords.items():
+
+        name = env.node_names[node_id]
+        name_lower = name.lower()
+
+        if node_id == current_node:
+            label_color = "#0891b2"
+        elif node_id == target_node:
+            label_color = "#059669"
+        elif node_id in env.start_locations:
+            label_color = "#c2410c"
+        else:
+            label_color = "#334155"
+
+        marker = icon_waypoint(node_id, name)
+
+        # Initial positions for icons and labels
+        label_offsets = {
+            0: (-30, -28),
+            1: (12, 18),
+            2: (-30, 20),
+            3: (12, -28),
+            4: (-30, 18),
+            5: (12, 20),
+        }
+
+        dx, dy = label_offsets.get(node_id, (12, 18))
+
+        # Bus stop: show icon only, without a text label
+        if "bus stop" in name_lower:
+            if marker is not None:
+                place_icon(ax, marker, x, y, dx, dy, zorder=7)
+            continue
+
+        # Roof Top B: text only, without an icon
+        if marker is None:
+            label_dx = 12
+            label_dy = 18
+
+        else:
+            place_icon(ax, marker, x, y, dx, dy, zorder=7)
+            label_dx = dx + 13 if dx < 0 else dx + 17
+            label_dy = dy
+
+        # Draw each waypoint name only once
+        ax.annotate(
+            name,
+            (x, y),
+            xytext=(label_dx, label_dy),
+            textcoords="offset points",
+            ha="left",
+            va="center",
+            fontsize=6.5,
+            fontweight="bold",
+            color=label_color,
+            zorder=8
+        )
+
+
+
+    # 3.4 Moving obstacles: person and car icons, plus an arrow for the last move
+    if show_obstacles:
+        for kind, positions, make_icon, base_dx, base_dy, arrow_color, tag in (
+            ("ped", env.pedestrian_positions, icon_person, -15, -12, "#a16207", "P"),
+            ("car", env.car_positions, icon_car, 16, -10, "#b91c1c", "C"),
+        ):
+            for i, node in enumerate(positions):
+                x, y = env.node_coords[node]
+                dx, dy = base_dx + 11 * i, base_dy
+                if prev_positions and prev_positions[kind][i] != node:
+                    px, py = env.node_coords[prev_positions[kind][i]]
+                    ax.annotate("", xy=(x, y), xytext=(px, py),
+                                arrowprops=dict(arrowstyle="-|>", color=arrow_color,
+                                                lw=2.2, shrinkA=7, shrinkB=9),
+                                zorder=8)
+                place_icon(ax, make_icon(), x, y, dx, dy, zorder=9)
+                ax.annotate(f"{tag}{i + 1}", (x, y), xytext=(dx, dy - 22),
+                            textcoords="offset points", ha="center", va="center",
+                            fontsize=7, fontweight="bold", color="#0f172a",
+                            bbox=dict(boxstyle="round,pad=0.15", fc="#ffffff",
+                                      ec="none", alpha=0.85),
+                            zorder=10)
+
+    # 3.5 Robot icon on its current node
+    rx, ry = env.node_coords[current_node]
+    place_icon(ax, icon_robot(), rx, ry, 0, 9, zorder=12)
+
+    # 3.6 HUD (dark text on a white box so it is readable in light mode)
+    weather_banner = "RAINY" if is_rainy else "SUNNY"
+
+    time_banner = ["DAY", "EVENING", "NIGHT"][env.current_time_of_day]
+    obstacle_text = ""
+    if show_obstacles:
+        obstacle_text = (f"Pedestrians : {env.pedestrian_positions}\n"
+                         f"Cars        : {env.car_positions}\n")
+
+    hud_text = (
+        "LIVE DELIVERY ENVIRONMENT\n"
+        "──────────────────────────\n"
+        f"Score       : {score} pts\n"
+        f"Steps Taken : {step_num}\n"
+        f"Weather     : {weather_banner}\n"
+        f"Time        : {time_banner}\n"
+        f"Current Loc : {env.node_names[current_node]}\n"
+        f"Target Dest : {env.node_names[target_node]}\n"
+        f"Order Item  : {env.selected_food}\n"
+        f"{obstacle_text}"
+        f"Status      : {status_text}"
+    )
+
+    ax.text(-27, 98.5, hud_text, fontsize=8.5, color="#0f172a",
+            family="monospace", va="top", ha="left", zorder=11,
+            bbox=dict(boxstyle="round,pad=0.6", facecolor="#ffffff",
+                      edgecolor="#06b6d4", linewidth=2, alpha=0.95))
+
+    # 3.7 Icon key (left margin, below the HUD)
+    ax.add_patch(FancyBboxPatch((-27.5, 50), 21, 22, boxstyle="round,pad=0.4,rounding_size=1.5",
+                                fc="#ffffff", ec="#cbd5e1", lw=1.2, alpha=0.95, zorder=11))
+    ax.text(-26.5, 70.2, "ICON KEY", fontsize=8, fontweight="bold",
+            color="#0f172a", va="center", zorder=12)
+    for row_y, make_icon, label in ((63.5, icon_robot, "Robot"),
+                                    (57.5, icon_person, "Pedestrian"),
+                                    (52.5, icon_car, "Car")):
+        place_icon(ax, make_icon(0.55), -23.5, row_y, 0, 0, zorder=12)
+        ax.text(-19, row_y, label, fontsize=8, color="#1e293b",
+                va="center", ha="left", zorder=12)
+
+    # 3.8 Legend for nodes and paths
+    legend_elements = [
+        patches.Patch(facecolor="#10b981", edgecolor="#047857", label="Destination"),
+        patches.Patch(facecolor="#f97316", edgecolor="#c2410c", label="Restaurant"),
+        Line2D([0], [0], color="#06b6d4", lw=4, label="Robot Travelled Path"),
+        Line2D([0], [0], color="#64748b", lw=2, label="Covered Walkway"),
+        Line2D([0], [0], color="#eab308", lw=2, ls="--", label="Uncovered Path"),
+        Line2D([0], [0], color="#b91c1c", lw=2, marker=">", markersize=6,
+               label="Obstacle's last move"),
+    ]
+    ax.legend(handles=legend_elements, loc="lower right", facecolor="#ffffff",
+              edgecolor="#cbd5e1", labelcolor="#1e293b", fontsize=8)
+
+    ax.set_xlim(-28, 102)
+    ax.set_ylim(2, 103)
+    ax.axis("off")
+    plt.tight_layout()
+    return fig
+
+
+# ==========================================
+# 4. ACTION POLICY
+# ==========================================
+
+def choose_action(env, state, model_name, q_table, previous_node):
+    """Trained Q-table for 'Q-Learning'; random valid action otherwise
+    (the other algorithms are not integrated yet)."""
+    valid = env.valid_actions()
+
+    if model_name == "Q-Learning" and q_table is not None:
+        candidates = valid
+        if USE_ANTI_BACKTRACKING and previous_node is not None:
+            filtered = [a for a in valid if a != previous_node]
+            if filtered:
+                candidates = filtered
+        q_values = q_table[state][candidates]
+        best = np.flatnonzero(q_values == q_values.max())
+        return int(candidates[int(random.choice(best.tolist()))])
+
+    return random.choice(valid)
+
+
+# ==========================================
+# 5. NAVIGATION CALLBACKS
+# (callbacks run BEFORE the rerun, so a button never replays the simulation)
+# ==========================================
+
+def go_to_order():
+    st.session_state.page = "order"
+
+
+def go_to_tracking():
+    st.session_state.page = "tracking"
+
+
+if "page" not in st.session_state:
+    st.session_state.page = "order"
+
+
+# ==========================================
+# VIEW 1: CUSTOMER ORDER SELECTION
+# ==========================================
+
+if st.session_state.page == "order":
+
+    st.title("🍔 TAR UMT Autonomous Campus Food Delivery")
+    st.markdown(
+        "Select your delivery destination, restaurant, food and weather. "
+        "The simulation shows the robot moving among pedestrians and cars "
+        "on the campus map."
+    )
+
+    col1, col2 = st.columns([1.2, 1])
+
+    
+    with col1:
+        st.subheader("📋 Step 1 – Configure Your Order")
+    
+        target_options = {env.node_names[n]: n for n in env.target_destinations}
+        selected_target_name = st.selectbox(
+            "🎯 Choose Delivery Destination:", list(target_options.keys())
+        )
+        chosen_target = target_options[selected_target_name]
+    
+        start_options = {env.node_names[n]: n for n in env.start_locations}
+        selected_start_name = st.selectbox(
+            "🏪 Choose Restaurant:", list(start_options.keys())
+        )
+        chosen_start = start_options[selected_start_name]
+    
+        chosen_food = st.selectbox(
+            f"🍱 Select Food from {selected_start_name}:",
+            env.food_menus[chosen_start]
+        )
+    
+        # Step 2 – Select AI Model
+        st.markdown("---")
+        st.subheader("🤖 Step 2 – Select Reinforcement Learning Model")
+    
+        selected_model = st.selectbox(
+            "Choose an AI model:",
+            ["Q-Learning", "SARSA", "DQN", "A2C", "REINFORCE"]
+        )
+    
+        # Step 3 – Weather
+        st.markdown("---")
+        st.subheader("🌦️ Step 3 – Weather")
+    
+        weather_mode = st.radio(
+            "Weather Condition:",
+            ["🎲 Auto Random Weather", "☀️ Force Sunny", "🌧️ Force Rainy"],
+            horizontal=True
+        )
+    
+        # Step 4 – Time of Day
+        st.markdown("---")
+        st.subheader("🕒 Step 4 – Time of Day")
+    
+        time_mode = st.radio(
+            "Time Condition:",
+            [
+                "🎲 Auto Random Time",
+                "☀️ Day",
+                "🌆 Evening",
+                "🌙 Night"
+            ],
+            horizontal=True
+        )
+    
+        st.write("")
+    
+        # Confirm Order
+        if st.button("🚀 Confirm Order & Launch Live Tracking"):
+    
+            # Weather configuration
+            if weather_mode == "☀️ Force Sunny":
+                weather_value = 0
+            elif weather_mode == "🌧️ Force Rainy":
+                weather_value = 1
+            else:
+                weather_value = random.choice([0, 1])
+    
+            # Order configuration
+            order_config = {
+                "start": chosen_start,
+                "target": chosen_target,
+                "food": chosen_food,
+                "weather": weather_value,
+            }
+    
+            # Time of day configuration
+            if time_mode == "☀️ Day":
+                order_config["time_of_day"] = 0
+            elif time_mode == "🌆 Evening":
+                order_config["time_of_day"] = 1
+            elif time_mode == "🌙 Night":
+                order_config["time_of_day"] = 2
+    
+            # Auto Random Time: environment selects it automatically
+    
+            st.session_state.order_config = order_config
+            st.session_state.selected_model = selected_model
+            st.session_state.page = "tracking"
+    
+            st.rerun()
+
+
+    with col2:
+        st.subheader("🗺️ Campus Map Preview")
+
+        preview_env = CampusDeliveryEnv(obstacle_mode=OBSTACLE_MODE)
+        preview_env.current_location = chosen_start
+        preview_env.target_destination = chosen_target
+        preview_env.current_weather = (
+            1 if weather_mode == "🌧️ Force Rainy" else 0
+        )
+        
+        time_mapping = {
+            "☀️ Day": 0,
+            "🌆 Evening": 1,
+            "🌙 Night": 2
+        }
+        
+        if time_mode == "🎲 Auto Random Time":
+            preview_env.current_time_of_day = random.choice([0, 1, 2])
+        else:
+            preview_env.current_time_of_day = time_mapping[time_mode]
+        
+        preview_env.selected_food = chosen_food
+
+        preview_fig = render_campus_map(
+            preview_env, [chosen_start], chosen_start, chosen_target,
+            score=0, step_num=0, status_text="Waiting for Order",
+            show_obstacles=False)
+        st.pyplot(preview_fig)
+        plt.close(preview_fig)
+
+
+# ==========================================
+# VIEW 2: LIVE ROBOT TRACKING
+# ==========================================
+
+elif st.session_state.page == "tracking":
+
+    if "order_config" not in st.session_state:
+        st.session_state.page = "order"
+        st.rerun()
+
+    cfg = st.session_state.order_config
+    selected_model = st.session_state.get("selected_model", "Q-Learning")
+    q_table = load_q_table()
+
+    try:
+        state, info = env.reset(options=cfg)
+    except ValueError as err:
+        note("error", f"Invalid order: {err}")
+        st.button("🏠 Back to Order Selection", on_click=go_to_order)
+        st.stop()
+
+    top_col1, top_col2 = st.columns([4, 1])
+    with top_col1:
+        st.subheader(
+            f"📡 Live Robot Tracking: {env.node_names[env.current_location]} "
+            f"➜ {env.node_names[env.target_destination]}")
+    with top_col2:
+        st.button("🔄 New Order", on_click=go_to_order)
+
+    if selected_model == "Q-Learning" and q_table is not None:
+        note("info", "🤖 Model: Q-Learning (trained Q-table loaded from q_table.npy)")
+    elif selected_model == "Q-Learning":
+        note("warning", "🤖 q_table.npy not found next to app.py, so a random valid-action "
+                        "policy is used. Run the training script first.")
+    else:
+        note("warning", f"🤖 {selected_model} is not integrated yet, so a random "
+                        "valid-action policy is used.")
+
+    hud_placeholder = st.empty()
+    map_placeholder = st.empty()
+    intent_placeholder = st.empty()
+    with st.expander("📜 Environment Simulation Log", expanded=True):
+        log_placeholder = st.empty()
+
+    total_score = 0
+    step_num = 0
+    terminated = truncated = False
+    previous_node = None
+    visited_nodes = [env.current_location]
+    logs = []
+
+    fig = render_campus_map(env, visited_nodes, env.current_location,
+                            env.target_destination, total_score, step_num,
+                            "Order Dispatched")
+    map_placeholder.pyplot(fig)
+    plt.close(fig)
+    intent_placeholder.markdown(describe_obstacles(env))
+    time.sleep(0.8)
+
+    reward = 0
+    while not (terminated or truncated):
+        step_num += 1
+
+        action = choose_action(env, state, selected_model, q_table, previous_node)
+        previous_location = env.current_location
+        prev_positions = {"ped": list(env.pedestrian_positions),
+                          "car": list(env.car_positions)}
+        state, reward, terminated, truncated, info = env.step(action)
+        total_score += reward
+
+        outcome = info.get("outcome")
+        moved = env.current_location != previous_location
+        if moved:
+            previous_node = previous_location
+            visited_nodes.append(env.current_location)
+
+        here = env.node_names[env.current_location]
+        if outcome == "wait":
+            status_msg, log_line = "Robot waiting", "WAIT"
+        elif outcome == "retreat":
+            blocked = env.node_names[info["blocked_node"]]
+            status_msg = f"Blocked at {blocked}, holding position"
+            log_line = f"RETREAT (blocked at {blocked})"
+        elif outcome == "invalid":
+            status_msg, log_line = "Invalid action", "INVALID action"
+        elif outcome == "ped_collision":
+            status_msg, log_line = f"Pedestrian collision at {here}", f"MOVE to {here} -> PEDESTRIAN COLLISION"
+        elif outcome == "car_collision":
+            status_msg, log_line = f"Car collision at {here}", f"MOVE to {here} -> CAR COLLISION"
+        elif outcome == "goal":
+            status_msg, log_line = f"Delivered at {here}", f"MOVE to {here} -> DELIVERED"
+        else:
+            status_msg, log_line = f"Moved to {here}", f"MOVE to {here}"
+
+        logs.append(f"Step {step_num}: {log_line} | Reward: {reward:+} pts")
+
+        with hud_placeholder.container():
+
+            m1, m2, m3, m4, m5 = st.columns(5)
+        
+            m1.metric("🏆 Current Score", f"{total_score} pts")
+        
+            m1.markdown(
+                f"""
+                <div style="
+                    color: #334155;
+                    font-size: 14px;
+                    font-weight: 600;
+                    margin-top: -12px;
+                ">
+                    {reward:+} pts
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        
+            m2.metric("👣 Steps Taken", f"{step_num}")
+        
+            m3.metric(
+                "🌦️ Weather",
+                "Rainy 🌧️" if env.current_weather == 1 else "Sunny ☀️"
+            )
+        
+            time_labels = ["Day ☀️", "Evening 🌆", "Night 🌙"]
+        
+            m4.metric(
+                "🕒 Time of Day",
+                time_labels[env.current_time_of_day]
+            )
+        
+            m5.metric(
+                "🚧 Moving Obstacles",
+                f"{len(env.pedestrian_positions) + len(env.car_positions)}"
+            )
+
+        fig = render_campus_map(env, visited_nodes, env.current_location,
+                                env.target_destination, total_score,
+                                step_num, status_msg,
+                                prev_positions=prev_positions)
+        map_placeholder.pyplot(fig)
+        plt.close(fig)
+        intent_placeholder.markdown(describe_obstacles(env))
+
+        log_placeholder.markdown("\n\n".join(logs[-10:]))
+        time.sleep(STEP_DELAY)
+
+    # ======================================
+    # FINAL RESULT (based on the real outcome, not just the location)
+    # ======================================
+
+    final_outcome = info.get("outcome")
+
+    if final_outcome == "goal":
+        note("success",
+             f"🎉 DELIVERY SUCCESSFUL! Delivered {env.selected_food} to "
+             f"{env.node_names[env.target_destination]} in {step_num} steps. "
+             f"Final Score: {total_score} pts")
+        st.balloons()
+
+    elif final_outcome in ("ped_collision", "car_collision"):
+        kind = "pedestrian" if final_outcome == "ped_collision" else "car"
+        note("error",
+             f"🚨 DELIVERY FAILED! The robot collided with a {kind} at "
+             f"{env.node_names[env.current_location]}. "
+             f"Final Score: {total_score} pts")
+
+    elif truncated:
+        note("warning", f"⏰ TIME LIMIT REACHED after {step_num} steps. "
+                        f"Final Score: {total_score} pts")
+
+    st.button("🏠 Back to Order Selection", on_click=go_to_order)
