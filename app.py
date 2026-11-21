@@ -588,12 +588,12 @@ if st.session_state.page == "order":
         if st.button("🚀 Confirm Order & Launch Live Tracking"):
 
         # Weather configuration
-        if weather_mode == "☀️ Force Sunny":
-            weather_value = 0
-        elif weather_mode == "🌧️ Force Rainy":
-            weather_value = 1
-        else:
-            weather_value = random.choice([0, 1])
+            if weather_mode == "☀️ Force Sunny":
+                weather_value = 0
+            elif weather_mode == "🌧️ Force Rainy":
+                weather_value = 1
+            else:
+                weather_value = random.choice([0, 1])
     
         # Order configuration
         order_config = {
