@@ -544,96 +544,96 @@ if st.session_state.page == "order":
     col1, col2 = st.columns([1.2, 1])
 
     
-with col1:
-    st.subheader("📋 Step 1 – Configure Your Order")
-
-    target_options = {env.node_names[n]: n for n in env.target_destinations}
-    selected_target_name = st.selectbox(
-        "🎯 Choose Delivery Destination:", list(target_options.keys())
-    )
-    chosen_target = target_options[selected_target_name]
-
-    start_options = {env.node_names[n]: n for n in env.start_locations}
-    selected_start_name = st.selectbox(
-        "🏪 Choose Restaurant:", list(start_options.keys())
-    )
-    chosen_start = start_options[selected_start_name]
-
-    chosen_food = st.selectbox(
-        f"🍱 Select Food from {selected_start_name}:",
-        env.food_menus[chosen_start]
-    )
-
-    # Step 2 – Select AI Model
-    st.markdown("---")
-    st.subheader("🤖 Step 2 – Select Reinforcement Learning Model")
-
-    selected_model = st.selectbox(
-        "Choose an AI model:",
-        ["Q-Learning", "SARSA", "DQN", "A2C", "REINFORCE"]
-    )
-
-    # Step 3 – Weather
-    st.markdown("---")
-    st.subheader("🌦️ Step 3 – Weather")
-
-    weather_mode = st.radio(
-        "Weather Condition:",
-        ["🎲 Auto Random Weather", "☀️ Force Sunny", "🌧️ Force Rainy"],
-        horizontal=True
-    )
-
-    # Step 4 – Time of Day
-    st.markdown("---")
-    st.subheader("🕒 Step 4 – Time of Day")
-
-    time_mode = st.radio(
-        "Time Condition:",
-        [
-            "🎲 Auto Random Time",
-            "☀️ Day",
-            "🌆 Evening",
-            "🌙 Night"
-        ],
-        horizontal=True
-    )
-
-    st.write("")
-
-    # Confirm Order
-    if st.button("🚀 Confirm Order & Launch Live Tracking"):
-
-        # Weather configuration
-        if weather_mode == "☀️ Force Sunny":
-            weather_value = 0
-        elif weather_mode == "🌧️ Force Rainy":
-            weather_value = 1
-        else:
-            weather_value = random.choice([0, 1])
-
-        # Order configuration
-        order_config = {
-            "start": chosen_start,
-            "target": chosen_target,
-            "food": chosen_food,
-            "weather": weather_value,
-        }
-
-        # Time of day configuration
-        if time_mode == "☀️ Day":
-            order_config["time_of_day"] = 0
-        elif time_mode == "🌆 Evening":
-            order_config["time_of_day"] = 1
-        elif time_mode == "🌙 Night":
-            order_config["time_of_day"] = 2
-
-        # Auto Random Time: environment selects it automatically
-
-        st.session_state.order_config = order_config
-        st.session_state.selected_model = selected_model
-        st.session_state.page = "tracking"
-
-        st.rerun()
+    with col1:
+        st.subheader("📋 Step 1 – Configure Your Order")
+    
+        target_options = {env.node_names[n]: n for n in env.target_destinations}
+        selected_target_name = st.selectbox(
+            "🎯 Choose Delivery Destination:", list(target_options.keys())
+        )
+        chosen_target = target_options[selected_target_name]
+    
+        start_options = {env.node_names[n]: n for n in env.start_locations}
+        selected_start_name = st.selectbox(
+            "🏪 Choose Restaurant:", list(start_options.keys())
+        )
+        chosen_start = start_options[selected_start_name]
+    
+        chosen_food = st.selectbox(
+            f"🍱 Select Food from {selected_start_name}:",
+            env.food_menus[chosen_start]
+        )
+    
+        # Step 2 – Select AI Model
+        st.markdown("---")
+        st.subheader("🤖 Step 2 – Select Reinforcement Learning Model")
+    
+        selected_model = st.selectbox(
+            "Choose an AI model:",
+            ["Q-Learning", "SARSA", "DQN", "A2C", "REINFORCE"]
+        )
+    
+        # Step 3 – Weather
+        st.markdown("---")
+        st.subheader("🌦️ Step 3 – Weather")
+    
+        weather_mode = st.radio(
+            "Weather Condition:",
+            ["🎲 Auto Random Weather", "☀️ Force Sunny", "🌧️ Force Rainy"],
+            horizontal=True
+        )
+    
+        # Step 4 – Time of Day
+        st.markdown("---")
+        st.subheader("🕒 Step 4 – Time of Day")
+    
+        time_mode = st.radio(
+            "Time Condition:",
+            [
+                "🎲 Auto Random Time",
+                "☀️ Day",
+                "🌆 Evening",
+                "🌙 Night"
+            ],
+            horizontal=True
+        )
+    
+        st.write("")
+    
+        # Confirm Order
+        if st.button("🚀 Confirm Order & Launch Live Tracking"):
+    
+            # Weather configuration
+            if weather_mode == "☀️ Force Sunny":
+                weather_value = 0
+            elif weather_mode == "🌧️ Force Rainy":
+                weather_value = 1
+            else:
+                weather_value = random.choice([0, 1])
+    
+            # Order configuration
+            order_config = {
+                "start": chosen_start,
+                "target": chosen_target,
+                "food": chosen_food,
+                "weather": weather_value,
+            }
+    
+            # Time of day configuration
+            if time_mode == "☀️ Day":
+                order_config["time_of_day"] = 0
+            elif time_mode == "🌆 Evening":
+                order_config["time_of_day"] = 1
+            elif time_mode == "🌙 Night":
+                order_config["time_of_day"] = 2
+    
+            # Auto Random Time: environment selects it automatically
+    
+            st.session_state.order_config = order_config
+            st.session_state.selected_model = selected_model
+            st.session_state.page = "tracking"
+    
+            st.rerun()
 
 
     with col2:
