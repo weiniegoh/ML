@@ -21,8 +21,20 @@ st.set_page_config(
 st.markdown("""
 <style>
     .stApp {
-        background-color: #0f172a;
-        color: #f8fafc;
+        background-color: #f8fafc;
+        color: #1e293b;
+    }
+
+    [data-testid="stHeader"] {
+        background-color: #f8fafc;
+    }
+
+    [data-testid="stSidebar"] {
+        background-color: #f1f5f9;
+    }
+
+    .stMarkdown, .stText, label, p, h1, h2, h3 {
+        color: #1e293b;
     }
 
     div.stButton > button {
@@ -41,8 +53,8 @@ st.markdown("""
     }
 
     .hud-card {
-        background: rgba(30, 41, 59, 0.85);
-        border: 1px solid #334155;
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
         border-left: 5px solid #06b6d4;
         border-radius: 10px;
         padding: 12px 16px;
@@ -82,7 +94,7 @@ def render_campus_map(
 
     is_rainy = env.current_weather == 1
 
-    bg_color = "#0b132b" if is_rainy else "#0f172a"
+    bg_color = "#e0f2fe" if is_rainy else "#f8fafc"
 
     fig, ax = plt.subplots(
         figsize=(13, 8.2),
@@ -128,7 +140,7 @@ def render_campus_map(
                 ax.plot(
                     [x1, x2],
                     [y1, y2],
-                    color="#475569",
+                    color="#94a3b8",
                     linestyle="-",
                     linewidth=2.2,
                     alpha=0.8,
@@ -194,9 +206,9 @@ def render_campus_map(
 
         else:
 
-            color = "#334155"
+            color = "#cbd5e1"
             size = 85
-            edge_color = "#94a3b8"
+            edge_color = "#64748b"
             z_order = 2
 
         ax.scatter(
@@ -224,7 +236,7 @@ def render_campus_map(
         label_color = (
             "#ffffff"
             if node_id in [current_node, target_node]
-            else "#cbd5e1"
+            else "#334155"
         )
 
         ax.text(
@@ -237,7 +249,7 @@ def render_campus_map(
             color=label_color,
             bbox=dict(
                 boxstyle="round,pad=0.18",
-                fc="#1e293b",
+                fc="#ffffff",
                 ec="none",
                 alpha=0.75
             ),
@@ -357,7 +369,7 @@ def render_campus_map(
         zorder=11,
         bbox=dict(
             boxstyle="round,pad=0.6",
-            facecolor="#1e293b",
+            facecolor="#ffffff",
             edgecolor="#06b6d4",
             linewidth=2,
             alpha=0.92
@@ -426,9 +438,9 @@ def render_campus_map(
     ax.legend(
         handles=legend_elements,
         loc="lower right",
-        facecolor="#1e293b",
-        edgecolor="#475569",
-        labelcolor="white",
+        facecolor="#ffffff",
+        edgecolor="#cbd5e1",
+        labelcolor="#1e293b",
         fontsize=8
     )
 
@@ -531,8 +543,27 @@ if st.session_state.page == "order":
 
         # Weather selection
 
+        # RL Model Selection
+
+        st.markdown("---")
+        
+        st.subheader("🤖 Step 2 – Select Reinforcement Learning Model")
+        
+        selected_model = st.selectbox(
+            "Choose an AI model:",
+            [
+                "Q-Learning",
+                "SARSA",
+                "DQN",
+                "A2C",
+                "REINFORCE"
+            ]
+        )
+        
+        # Weather selection
+        
         weather_mode = st.radio(
-            "🌦️ 4. Weather Condition:",
+            "🌦️ 3. Weather Condition:",
             [
                 "🎲 Auto Random Weather",
                 "☀️ Force Sunny",
@@ -558,7 +589,8 @@ if st.session_state.page == "order":
                 "start": chosen_start,
                 "target": chosen_target,
                 "food": chosen_food,
-                "weather": weather_value
+                "weather": weather_value,
+                "model": selected_model
             }
 
             st.session_state.page = "tracking"
@@ -602,7 +634,7 @@ if st.session_state.page == "order":
 elif st.session_state.page == "tracking":
 
     cfg = st.session_state.order_config
-
+    selected_model = cfg["model"]
     # Reset the latest environment using the
     # customer's selected order.
 
@@ -618,6 +650,8 @@ elif st.session_state.page == "tracking":
             f"➜ "
             f"{env.node_names[env.target_destination]}"
         )
+
+st.info(f"🤖 Selected RL Model: {selected_model}")
 
     with top_col2:
 
