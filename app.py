@@ -651,7 +651,7 @@ elif st.session_state.page == "tracking":
             f"{env.node_names[env.target_destination]}"
         )
 
-st.info(f"🤖 Selected RL Model: {selected_model}")
+    st.info(f"🤖 Selected RL Model: {selected_model}")
 
     with top_col2:
 
