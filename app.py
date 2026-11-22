@@ -1043,19 +1043,19 @@ if st.session_state.page == "order":
             # Row 1: Restaurant & Destination
             r1_c1, r1_c2 = st.columns(2)
             with r1_c1:
-                selected_start_name = st.selectbox("🏪 1. Restaurant", list(start_options.keys()))
+                selected_start_name = st.selectbox("🏪 Restaurant", list(start_options.keys()))
                 chosen_start = start_options[selected_start_name]
             with r1_c2:
-                selected_target_name = st.selectbox("🎯 2. Destination", list(target_options.keys()))
+                selected_target_name = st.selectbox("🎯 Destination", list(target_options.keys()))
                 chosen_target = target_options[selected_target_name]
 
             # Row 2: Food Item & RL Model
             r2_c1, r2_c2 = st.columns(2)
             with r2_c1:
-                chosen_food = st.selectbox("🍱 3. Food Item", env.food_menus[chosen_start])
+                chosen_food = st.selectbox("🍱 Food Item", env.food_menus[chosen_start])
             with r2_c2:
                 selected_model = st.selectbox(
-                    "🤖 4. RL Navigation Model",
+                    "🤖 RL Navigation Model",
                     ["Q-Learning", "SARSA", "A2C", "REINFORCE", "DQN"]
                 )
 
@@ -1063,12 +1063,12 @@ if st.session_state.page == "order":
             r3_c1, r3_c2 = st.columns(2)
             with r3_c1:
                 weather_mode = st.selectbox(
-                    "🌦️ 5. Weather Condition",
+                    "🌦️ Weather Condition",
                     ["🎲 Auto Random", "☀️ Force Sunny", "🌧️ Force Rainy"]
                 )
             with r3_c2:
                 time_mode = st.selectbox(
-                    "🕒 6. Time of Day",
+                    "🕒 Time of Day",
                     ["🎲 Auto Random", "☀️ Day", "🌆 Evening", "🌙 Night"]
                 )
 
@@ -1096,7 +1096,7 @@ if st.session_state.page == "order":
                 </div>
             """, unsafe_allow_html=True)
 
-            if st.button("🚀 Confirm Order & Launch Live Tracking", use_container_width=True):
+            if st.button("Confirm Order & Launch Live Tracking", use_container_width=True):
                 if weather_mode == "☀️ Force Sunny":
                     weather_value = 0
                 elif weather_mode == "🌧️ Force Rainy":
@@ -1243,9 +1243,9 @@ elif st.session_state.page == "tracking":
             </div>
         """, unsafe_allow_html=True)
     with top_col2:
-        st.button("🔁 Replay", on_click=replay_order, use_container_width=True)
+        st.button("Replay", on_click=replay_order, use_container_width=True)
     with top_col3:
-        st.button("🔄 New Order", on_click=go_to_order, use_container_width=True)
+        st.button("New Order", on_click=go_to_order, use_container_width=True)
 
     # ---- 2. MAIN UNIFIED BENTO CONSOLE (MAP + SIMULATION LOG SIDE-BY-SIDE) ----
     with st.container(border=True):
