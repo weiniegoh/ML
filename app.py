@@ -1180,50 +1180,64 @@ elif st.session_state.page == "tracking":
     POPUP_ON_FAILURE = False          # also pop up automatically on collision / time limit?
 
     # ==========================================
-    # VIEW 2 STYLES: wide map + slide-out log drawer
+    # VIEW 2 STYLES: wide map + slide-out log (the map makes room when the log is open)
     # (kept inside View 2 so you can paste this block on its own)
     # ==========================================
+    LOG_W = f"min({LOG_DRAWER_WIDTH}, 92vw)"         # real drawer width (never wider than 92% of the screen)
+
     st.markdown("""
     <style>
         /* ---- Wider page so the map can use the full screen width ---- */
         .block-container { max-width: __VIEW2_MAX_WIDTH__ !important; }
 
-        /* ---- Slide-out Simulation Log (fixed to the right edge of the screen) ---- */
-        .log-drawer {
-            position: fixed; top: 72px; bottom: 14px; right: 0;
-            width: min(__LOG_DRAWER_WIDTH__, 92vw);
+        /* ---- Hidden data feed: Python writes the log here, JavaScript copies it into the drawer ---- */
+        .log-source { display: none !important; }
+
+        /* ---- When the log is open the page content makes room (padding), so the map SHRINKS
+               instead of being covered, and grows back to full size when the log is closed ---- */
+        [data-testid="stMain"], section.main {
+            transition: padding-right 0.32s cubic-bezier(0.3, 0, 0.2, 1);
+        }
+        body.log-open [data-testid="stMain"], body.log-open section.main {
+            padding-right: calc(__LOG_W__ + 40px) !important;
+        }
+
+        /* ---- Slide-out Simulation Log (created by JavaScript, fixed to the right edge) ---- */
+        #campusLogDrawer {
+            position: fixed; top: 60px; bottom: 0; right: 0;
+            width: __LOG_W__; box-sizing: border-box;
             z-index: 10001;
             display: flex; flex-direction: column;
             padding: 12px 12px 12px 14px;
             background: #ffffff;
-            border: 1px solid #bae6fd; border-right: none;
-            border-radius: 18px 0 0 18px;
-            box-shadow: -12px 0 34px rgba(15, 23, 42, 0.20);
+            border-left: 1px solid #bae6fd;
+            box-shadow: -10px 0 30px rgba(15, 23, 42, 0.14);
             transform: translateX(105%);
             transition: transform 0.32s cubic-bezier(0.3, 0, 0.2, 1);
         }
-        body.log-open .log-drawer { transform: translateX(0); }
-        .log-drawer-head {
+        body.log-open #campusLogDrawer { transform: translateX(0); }
+        #campusLogDrawer .log-drawer-head {
             display: flex; align-items: center; justify-content: space-between;
             margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #e2e8f0;
         }
-        .log-drawer-title { font-size: 15px; font-weight: 800; color: #0e7490; }
-        .log-drawer-count {
+        #campusLogDrawer .log-drawer-title { font-size: 15px; font-weight: 800; color: #0e7490; }
+        #campusLogDrawer .log-drawer-count {
             margin-left: 8px; font-size: 11px; font-weight: 700; color: #0e7490;
             background: #e0f2fe; padding: 2px 9px; border-radius: 999px;
         }
-        .log-drawer-sub { font-size: 11px; color: #64748b; margin-left: 8px; }
-        .log-drawer-close {
+        #campusLogDrawer .log-drawer-sub { font-size: 11px; color: #64748b; margin-left: 8px; }
+        #campusLogDrawer .log-drawer-close {
             cursor: pointer; font-size: 15px; font-weight: 800; color: #475569;
             width: 28px; height: 28px; line-height: 28px; text-align: center;
             border-radius: 8px; background: #f1f5f9; user-select: none;
         }
-        .log-drawer-close:hover { background: #fee2e2; color: #b91c1c; }
+        #campusLogDrawer .log-drawer-close:hover { background: #fee2e2; color: #b91c1c; }
+        #campusLogBody { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
         /* the old fixed 545px log box now fills the drawer instead */
-        .log-drawer .log-panel-box { height: auto !important; flex: 1 1 auto; min-height: 0; }
+        #campusLogBody .log-panel-box { height: 100% !important; box-sizing: border-box; }
 
-        /* ---- Tab button on the right edge that opens / closes the drawer ---- */
-        .log-toggle-btn {
+        /* ---- Tab button on the right edge: click to open / close the log ---- */
+        #campusLogToggle {
             position: fixed; right: 0; top: 50%; transform: translateY(-50%);
             z-index: 10002; cursor: pointer; border: none;
             writing-mode: vertical-rl; letter-spacing: 0.6px;
@@ -1233,64 +1247,88 @@ elif st.session_state.page == "tracking":
             box-shadow: -4px 4px 16px rgba(14, 116, 144, 0.35);
             transition: right 0.32s cubic-bezier(0.3, 0, 0.2, 1), filter 0.15s ease;
         }
-        .log-toggle-btn:hover { filter: brightness(1.12); }
-        body.log-open .log-toggle-btn { right: min(__LOG_DRAWER_WIDTH__, 92vw); }
-        /* only show the tab while View 2 (which contains the drawer) is on screen */
-        body:not(:has(.log-drawer)) .log-toggle-btn { display: none; }
+        #campusLogToggle:hover { filter: brightness(1.12); }
+        body.log-open #campusLogToggle { right: __LOG_W__; }
     </style>
-    """.replace("__VIEW2_MAX_WIDTH__", VIEW2_MAX_WIDTH).replace("__LOG_DRAWER_WIDTH__", LOG_DRAWER_WIDTH),
+    """.replace("__VIEW2_MAX_WIDTH__", VIEW2_MAX_WIDTH).replace("__LOG_W__", LOG_W),
         unsafe_allow_html=True)
 
-    # JavaScript (runs once): creates the edge tab, toggles the drawer, closes it with the X button or Esc key.
-    # It only flips a class on <body>, so opening/closing never reruns the Python simulation.
+    # JavaScript (runs once per browser tab). It builds the right-edge tab + the drawer directly under <body>,
+    # copies the log from the hidden .log-source element every 0.25 s, and only flips a class on <body>
+    # when you click, so opening/closing the log NEVER reruns the Python simulation.
     log_drawer_js = """
     <script>
     const parentWin = window.parent;
-    const parentDoc = window.parent.document;
+    const doc = window.parent.document;
 
-    if (!parentWin._campusLogDrawerInit) {
-        const btn = parentDoc.createElement('button');
-        btn.id = 'campusLogToggle';
-        btn.className = 'log-toggle-btn';
-        btn.type = 'button';
-        btn.title = 'Show / hide the simulation log';
-        btn.textContent = '\\uD83D\\uDCCB Simulation Log';
-        btn.addEventListener('click', function () {
-            parentDoc.body.classList.toggle('log-open');
+    if (!parentWin._campusLogDrawerV2) {
+        parentWin._campusLogDrawerV2 = true;
+
+        // remove leftovers of an older version, if any
+        ['campusLogToggle', 'campusLogDrawer'].forEach(function (id) {
+            const old = doc.getElementById(id);
+            if (old) { old.remove(); }
         });
-        parentDoc.body.appendChild(btn);
 
-        parentDoc.addEventListener('click', function (e) {
-            if (e.target && e.target.closest && e.target.closest('.log-drawer-close')) {
-                parentDoc.body.classList.remove('log-open');
+        const toggleBtn = doc.createElement('button');
+        toggleBtn.id = 'campusLogToggle';
+        toggleBtn.type = 'button';
+        toggleBtn.title = 'Show / hide the simulation log';
+        toggleBtn.textContent = '\\uD83D\\uDCCB Simulation Log';
+        toggleBtn.style.display = 'none';
+
+        const drawer = doc.createElement('div');
+        drawer.id = 'campusLogDrawer';
+        drawer.innerHTML =
+            '<div class="log-drawer-head">' +
+              '<div><span class="log-drawer-title">\\uD83D\\uDCCB Simulation Log</span>' +
+              '<span class="log-drawer-count" id="campusLogCount">0 steps</span>' +
+              '<span class="log-drawer-sub">newest first</span></div>' +
+              '<span class="log-drawer-close" id="campusLogClose" role="button" title="Close">\\u2715</span>' +
+            '</div>' +
+            '<div id="campusLogBody"></div>';
+
+        doc.body.appendChild(drawer);
+        doc.body.appendChild(toggleBtn);
+
+        toggleBtn.addEventListener('click', function () { doc.body.classList.toggle('log-open'); });
+        doc.getElementById('campusLogClose').addEventListener('click', function () {
+            doc.body.classList.remove('log-open');
+        });
+        doc.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') { doc.body.classList.remove('log-open'); }
+        });
+
+        let lastHtml = null;
+        setInterval(function () {
+            const src = doc.querySelector('.log-source');
+            if (!src) {                               // not on View 2 -> hide the tab and close the drawer
+                toggleBtn.style.display = 'none';
+                doc.body.classList.remove('log-open');
+                lastHtml = null;
+                return;
             }
-        });
-        parentDoc.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape') { parentDoc.body.classList.remove('log-open'); }
-        });
-        parentWin._campusLogDrawerInit = true;
+            toggleBtn.style.display = 'block';
+            const html = src.innerHTML;
+            if (html !== lastHtml) {                  // copy only when the log changed
+                doc.getElementById('campusLogBody').innerHTML = html;
+                const n = src.querySelectorAll('.log-entry').length;
+                doc.getElementById('campusLogCount').textContent = n + (n === 1 ? ' step' : ' steps');
+                lastHtml = html;
+            }
+        }, 250);
     }
     </script>
     """
     components.html(log_drawer_js, height=0, width=0)
 
     def render_log_drawer_html(log_entries):
-        """Wrap the existing log panel in the slide-out drawer (header + close button + scrollable log)."""
-        n = len(log_entries)
-        return (
-            '<div class="log-drawer">'
-            '<div class="log-drawer-head">'
-            '<div><span class="log-drawer-title">📋 Simulation Log</span>'
-            f'<span class="log-drawer-count">{n} step{"s" if n != 1 else ""}</span>'
-            '<span class="log-drawer-sub">newest first</span></div>'
-            '<span class="log-drawer-close" role="button" tabindex="0" title="Close">✕</span>'
-            '</div>'
-            f'{render_log_panel_html(log_entries)}'
-            '</div>'
-        )
+        """The log is written into a hidden element; the JavaScript above shows it inside the drawer."""
+        return f'<div class="log-source">{render_log_panel_html(log_entries)}</div>'
 
     # ==========================================
     # RESULT POP-UP (centered modal dialog)
+    # Short pop-up: "Delivery Successful!" + final score, and a "View Summary" button that opens the details.
     # Uses st.dialog (Streamlit >= 1.37) or st.experimental_dialog (1.34-1.36). If neither exists,
     # the pop-up is skipped and the result card below the map is still shown.
     # ==========================================
@@ -1299,23 +1337,29 @@ elif st.session_state.page == "tracking":
     def request_result_popup():
         st.session_state.show_result_popup = True
 
-    def build_result_html(d, model_name):
-        """HTML for the pop-up body: big status banner, 4 key numbers and a mission-details table."""
+    def build_banner_html(d):
+        """Pop-up banner: status icon, title and the final score. Nothing else."""
         outcome = d["final_outcome"]
         if outcome == "goal":
             icon, title, accent, bg = "🎉", "Delivery Successful!", "#0d9488", "#f0fdfa"
-            sub = (f"<b>{html.escape(d['selected_food'])}</b> was delivered to "
-                   f"<b>{html.escape(env.node_names[d['target_destination']])}</b>.")
         elif outcome in ("ped_collision", "car_collision"):
             kind = "Pedestrian" if outcome == "ped_collision" else "Car"
             icon, title, accent, bg = "💥", f"Delivery Failed — {kind} Collision", "#dc2626", "#fef2f2"
-            sub = f"The robot collided at <b>{html.escape(env.node_names[d['current_location']])}</b>."
         else:
             icon, title, accent, bg = "⏱️", "Time Limit Reached", "#d97706", "#fffbeb"
-            sub = f"The simulation ended after the {env.max_steps}-step limit."
+        return (
+            f'<div style="text-align:center; background:{bg}; border:1px solid {accent}33; border-radius:18px; padding:26px 16px;">'
+            f'<div style="font-size:44px; line-height:1;">{icon}</div>'
+            f'<div style="color:{accent}; font-size:25px; font-weight:900; margin-top:8px;">{title}</div>'
+            f'<div style="color:{accent}; font-size:38px; font-weight:900; margin-top:10px; line-height:1.1;">{d["total_score"]} pts</div>'
+            '<div style="color:#64748b; font-size:11px; font-weight:700; letter-spacing:0.8px; margin-top:4px;">FINAL SCORE</div>'
+            '</div>'
+        )
 
-        records = d["log_records"]
-        waits = sum(1 for r in records if r["Outcome"] == "wait")
+    def build_details_html(d, model_name):
+        """Summary details shown after pressing "View Summary": 4 key numbers + mission table."""
+        accent = "#0d9488" if d["final_outcome"] == "goal" else ("#d97706" if d["final_outcome"] not in ("ped_collision", "car_collision") else "#dc2626")
+        waits = sum(1 for r in d["log_records"] if r["Outcome"] == "wait")
         rain_txt = "100% Dry" if d["rain_violations"] == 0 else f"{d['rain_violations']} Open-Air"
         time_labels = ["Day", "Evening", "Night"]
         weather_txt = "Rainy" if d["current_weather"] == 1 else "Sunny"
@@ -1325,59 +1369,53 @@ elif st.session_state.page == "tracking":
 
         def tile(value, label):
             return (
-                '<div style="flex:1; min-width:110px; text-align:center; background:#ffffff; '
-                'border:1px solid #e2e8f0; border-radius:14px; padding:14px 8px;">'
-                f'<div style="color:{accent}; font-size:25px; font-weight:900; line-height:1.15;">{value}</div>'
-                f'<div style="color:#64748b; font-size:10.5px; font-weight:700; letter-spacing:0.6px; margin-top:4px;">{label}</div>'
+                '<div style="flex:1 1 45%; text-align:center; background:#ffffff; border:1px solid #e2e8f0; '
+                'border-radius:12px; padding:10px 6px;">'
+                f'<div style="color:{accent}; font-size:20px; font-weight:900; line-height:1.15;">{value}</div>'
+                f'<div style="color:#64748b; font-size:10px; font-weight:700; letter-spacing:0.6px; margin-top:3px;">{label}</div>'
                 '</div>'
             )
 
         def row(label, value):
             return (
                 '<tr>'
-                f'<td style="padding:7px 10px; color:#64748b; font-size:12.5px; font-weight:700; white-space:nowrap; vertical-align:top;">{label}</td>'
-                f'<td style="padding:7px 10px; color:#0f172a; font-size:13px;">{value}</td>'
+                f'<td style="padding:6px 8px; color:#64748b; font-size:12px; font-weight:700; white-space:nowrap; vertical-align:top;">{label}</td>'
+                f'<td style="padding:6px 8px; color:#0f172a; font-size:12.5px;">{value}</td>'
                 '</tr>'
             )
 
         return (
-            f'<div style="text-align:center; background:{bg}; border:1px solid {accent}33; border-radius:18px; padding:22px 16px; margin-bottom:14px;">'
-            f'<div style="font-size:46px; line-height:1;">{icon}</div>'
-            f'<div style="color:{accent}; font-size:25px; font-weight:900; margin-top:8px;">{title}</div>'
-            f'<div style="color:#475569; font-size:14px; margin-top:6px;">{sub}</div>'
-            '</div>'
-            '<div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">'
-            f'{tile(str(d["total_score"]) + " pts", "FINAL SCORE")}'
+            '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">'
             f'{tile(d["step_num"], "STEPS")}'
             f'{tile(d["retreat_count"], "RETREATS")}'
+            f'{tile(waits, "WAITS")}'
             f'{tile(rain_txt, "RAIN SAFETY")}'
             '</div>'
-            '<table style="width:100%; border-collapse:collapse; background:#ffffff; border:1px solid #e2e8f0; border-radius:12px;">'
+            '<table style="width:100%; border-collapse:collapse; background:#ffffff; border:1px solid #e2e8f0;">'
             f'{row("Order", html.escape(d["selected_food"]))}'
             f'{row("Mission", html.escape(start_name) + " ➜ " + html.escape(target_name))}'
             f'{row("AI model", html.escape(model_name))}'
             f'{row("Conditions", weather_txt + " · " + time_labels[d["current_time_of_day"]])}'
-            f'{row("Waits", str(waits) + " pull-over" + ("s" if waits != 1 else ""))}'
             f'{row("Route taken", html.escape(route))}'
             '</table>'
         )
 
     show_result_dialog = None
     if _dialog_decorator is not None:
-        @_dialog_decorator("Delivery Summary", width="large")
+        @_dialog_decorator("Delivery Result")
         def show_result_dialog(d, model_name):
-            st.markdown(build_result_html(d, model_name), unsafe_allow_html=True)
-            st.caption("Close this window (✕ or click outside) to go back to the map. "
-                       "The step-by-step log is in the 📋 tab on the right edge of the screen.")
-            dlg_c1, dlg_c2 = st.columns(2)
-            with dlg_c1:
-                if st.button("🔁 Replay", key="dlg_replay", use_container_width=True):
-                    replay_order()
-                    st.rerun()
-            with dlg_c2:
-                if st.button("🔄 New Order", key="dlg_new_order", use_container_width=True):
-                    go_to_order()
-                    st.rerun()
+            st.markdown(build_banner_html(d), unsafe_allow_html=True)
+            with st.expander("📊 View Summary"):          # click to open / close (no rerun needed)
+                st.markdown(build_details_html(d, model_name), unsafe_allow_html=True)
+                dlg_c1, dlg_c2 = st.columns(2)
+                with dlg_c1:
+                    if st.button("🔁 Replay", key="dlg_replay", use_container_width=True):
+                        replay_order()
+                        st.rerun()
+                with dlg_c2:
+                    if st.button("🔄 New Order", key="dlg_new_order", use_container_width=True):
+                        go_to_order()
+                        st.rerun()
 
     # Compact Model Status Pill (replaces bulky alert banner)
     if selected_model == "Q-Learning" and q_table is not None:
