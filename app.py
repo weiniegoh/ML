@@ -31,9 +31,16 @@ except ImportError:
 INTERP_FRAMES = 4                # sub-frames per step for smooth gliding (no teleporting)
 FRAME_DELAY = 0.14               # seconds per sub-frame (increase to slow down movement)
 STEP_PAUSE = 0.35                # brief pause after arriving at each node
-USE_ANTI_BACKTRACKING = True     # must match the setting used in training
-OBSTACLE_MODE = "routes"         # must match OBSTACLE_MODE used in training
-Q_TABLE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "q_table.npy")
+USE_ANTI_BACKTRACKING = False    # False to match evaluate_agent() in Colab
+OBSTACLE_MODE = "random"         # must match OBSTACLE_MODE used in training
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_FILES = {
+    "Q-Learning": os.path.join(BASE_DIR, "q_table.npy"),
+    "SARSA":      os.path.join(BASE_DIR, "sarsa_table.npy"),
+    "A2C":        os.path.join(BASE_DIR, "a2c_table.npy"),
+    "REINFORCE":  os.path.join(BASE_DIR, "reinforce_table.npy"),
+}
 
 
 # ==========================================
@@ -509,7 +516,7 @@ st.markdown("""
 
 
 # ==========================================
-# 4. ENVIRONMENT, HELPERS & Q-TABLE
+# 4. ENVIRONMENT, HELPERS & MODEL LOADER
 # ==========================================
 
 env = CampusDeliveryEnv(obstacle_mode=OBSTACLE_MODE)
@@ -634,21 +641,26 @@ def render_log_panel_html(log_entries):
 
 
 @st.cache_resource
-def load_q_table(path=Q_TABLE_PATH):
-    """Load the trained 5D Q-table if it exists and has the expected shape."""
-    if not os.path.exists(path):
-        return None
-
+def _load_table_cached(path, mtime):
+    """mtime ensures Streamlit auto-reloads whenever you overwrite the .npy file."""
     table = np.load(path)
     expected_shape = (36, 36, 2, 3, 3, 37)
 
     if table.shape != expected_shape:
         st.warning(
-            f"Q-table shape mismatch. Expected {expected_shape}, "
+            f"{os.path.basename(path)} shape mismatch. Expected {expected_shape}, "
             f"but received {table.shape}."
         )
         return None
     return table
+
+
+def load_model_table(model_name):
+    """Load the trained 5D policy/Q-table for the selected RL model if present."""
+    path = MODEL_FILES.get(model_name)
+    if not path or not os.path.exists(path):
+        return None
+    return _load_table_cached(path, os.path.getmtime(path))
 
 
 # ==========================================
@@ -958,18 +970,18 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
 # 6. ACTION POLICY & NAVIGATION CALLBACKS
 # ==========================================
 
-def choose_action(env, state, model_name, q_table, previous_node):
-    """Trained Q-table for 'Q-Learning'; random valid action otherwise."""
+def choose_action(env, state, model_name, policy_table, previous_node):
+    """Use the loaded 5D table for any linked tabular RL model; random fallback otherwise."""
     valid = env.valid_actions()
 
-    if model_name == "Q-Learning" and q_table is not None:
+    if policy_table is not None:
         candidates = valid
         if USE_ANTI_BACKTRACKING and previous_node is not None:
             filtered = [a for a in valid if a != previous_node]
             if filtered:
                 candidates = filtered
-        q_values = q_table[state][candidates]
-        best = np.flatnonzero(q_values == q_values.max())
+        values = policy_table[state][candidates]
+        best = np.flatnonzero(values == values.max())
         return int(candidates[int(random.choice(best.tolist()))])
 
     return random.choice(valid)
@@ -979,11 +991,13 @@ def go_to_order():
     st.session_state.page = "order"
     st.session_state.sim_finished = False
     st.session_state.sim_data = None
+    st.session_state.show_result_popup = False
 
 
 def replay_order():
     st.session_state.sim_finished = False
     st.session_state.sim_data = None
+    st.session_state.show_result_popup = False
 
 
 if "page" not in st.session_state:
@@ -1123,6 +1137,7 @@ if st.session_state.page == "order":
                 st.session_state.selected_model = selected_model
                 st.session_state.sim_finished = False
                 st.session_state.sim_data = None
+                st.session_state.show_result_popup = False
                 st.session_state.page = "tracking"
                 st.rerun()
 
@@ -1169,7 +1184,7 @@ elif st.session_state.page == "tracking":
 
     cfg = st.session_state.order_config
     selected_model = st.session_state.get("selected_model", "Q-Learning")
-    q_table = load_q_table()
+    policy_table = load_model_table(selected_model)
 
     # ==========================================
     # SUCCESS POP-UP (centered dialog): "Delivery Successful!" + final score,
@@ -1259,13 +1274,20 @@ elif st.session_state.page == "tracking":
                         go_to_order()
                         st.rerun()
 
-    # Compact Model Status Pill (replaces bulky alert banner)
-    if selected_model == "Q-Learning" and q_table is not None:
-        model_pill_html = '<span class="status-pill-ok">Model: Q-Learning (Trained 5D Table)</span>'
-    elif selected_model == "Q-Learning":
-        model_pill_html = '<span class="status-pill-warn">q_table.npy missing — Random Fallback</span>'
+    # Compact Model Status Pill (supports all 4 linked tabular RL models)
+    if policy_table is not None:
+        model_pill_html = (
+            f'<span class="status-pill-ok">Model: {html.escape(selected_model)} (Trained 5D Table Loaded)</span>'
+        )
+    elif selected_model in MODEL_FILES:
+        fname = os.path.basename(MODEL_FILES[selected_model])
+        model_pill_html = (
+            f'<span class="status-pill-warn">{html.escape(fname)} not found — Random Fallback</span>'
+        )
     else:
-        model_pill_html = f'<span class="status-pill-warn">{html.escape(selected_model)} not linked — Random Fallback</span>'
+        model_pill_html = (
+            f'<span class="status-pill-warn">{html.escape(selected_model)} not linked — Random Fallback</span>'
+        )
 
     # ---- 1. COMPACT TOP BAR ----
     top_col1, top_col2, top_col3 = st.columns([3.8, 0.9, 1.0])
@@ -1364,7 +1386,7 @@ elif st.session_state.page == "tracking":
 
         while not (terminated or truncated):
             step_num += 1
-            action = choose_action(env, state, selected_model, q_table, previous_node)
+            action = choose_action(env, state, selected_model, policy_table, previous_node)
             previous_location = env.current_location
             prev_positions = {"ped": list(env.pedestrian_positions), "car": list(env.car_positions)}
 
