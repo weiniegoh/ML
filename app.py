@@ -1194,85 +1194,43 @@ elif st.session_state.page == "tracking":
     POPUP_ON_SUCCESS = True
     _dialog_decorator = getattr(st, "dialog", None) or getattr(st, "experimental_dialog", None)
 
-    def build_banner_html(d):
-        """Pop-up banner: icon, title and the final score only."""
-        outcome = d["final_outcome"]
-        if outcome == "goal":
-            icon, title, accent, bg = "🎉", "Delivery Successful!", "#0d9488", "#f0fdfa"
-        elif outcome in ("ped_collision", "car_collision"):
-            kind = "Pedestrian" if outcome == "ped_collision" else "Car"
-            icon, title, accent, bg = "💥", f"Delivery Failed — {kind} Collision", "#dc2626", "#fef2f2"
-        else:
-            icon, title, accent, bg = "⏱️", "Time Limit Reached", "#d97706", "#fffbeb"
-        return (
-            f'<div style="text-align:center; background:{bg}; border:1px solid {accent}33; border-radius:18px; padding:26px 16px;">'
-            f'<div style="font-size:44px; line-height:1;">{icon}</div>'
-            f'<div style="color:{accent}; font-size:25px; font-weight:900; margin-top:8px;">{title}</div>'
-            f'<div style="color:{accent}; font-size:38px; font-weight:900; margin-top:10px; line-height:1.1;">{d["total_score"]} pts</div>'
-            '<div style="color:#64748b; font-size:11px; font-weight:700; letter-spacing:0.8px; margin-top:4px;">FINAL SCORE</div>'
-            '</div>'
-        )
-
-    def build_details_html(d, model_name):
-        """Details shown after pressing "View Summary": 4 key numbers + mission table."""
-        accent = "#0d9488"
-        waits = sum(1 for r in d["log_records"] if r["Outcome"] == "wait")
-        rain_txt = "100% Dry" if d["rain_violations"] == 0 else f"{d['rain_violations']} Open-Air"
-        time_labels = ["Day", "Evening", "Night"]
-        weather_txt = "Rainy" if d["current_weather"] == 1 else "Sunny"
-        route = " ➜ ".join(env.node_names[n] for n in d["visited_nodes"])
-        start_name = env.node_names[d["visited_nodes"][0]]
-        target_name = env.node_names[d["target_destination"]]
-
-        def tile(value, label):
-            return (
-                '<div style="flex:1 1 45%; text-align:center; background:#ffffff; border:1px solid #e2e8f0; '
-                'border-radius:12px; padding:10px 6px;">'
-                f'<div style="color:{accent}; font-size:20px; font-weight:900; line-height:1.15;">{value}</div>'
-                f'<div style="color:#64748b; font-size:10px; font-weight:700; letter-spacing:0.6px; margin-top:3px;">{label}</div>'
-                '</div>'
-            )
-
-        def row(label, value):
-            return (
-                '<tr>'
-                f'<td style="padding:6px 8px; color:#64748b; font-size:12px; font-weight:700; white-space:nowrap; vertical-align:top;">{label}</td>'
-                f'<td style="padding:6px 8px; color:#0f172a; font-size:12.5px;">{value}</td>'
-                '</tr>'
-            )
-
-        return (
-            '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">'
-            f'{tile(d["step_num"], "STEPS")}'
-            f'{tile(d["retreat_count"], "RETREATS")}'
-            f'{tile(waits, "WAITS")}'
-            f'{tile(rain_txt, "RAIN SAFETY")}'
-            '</div>'
-            '<table style="width:100%; border-collapse:collapse; background:#ffffff; border:1px solid #e2e8f0;">'
-            f'{row("Order", html.escape(d["selected_food"]))}'
-            f'{row("Mission", html.escape(start_name) + " ➜ " + html.escape(target_name))}'
-            f'{row("AI model", html.escape(model_name))}'
-            f'{row("Conditions", weather_txt + " · " + time_labels[d["current_time_of_day"]])}'
-            f'{row("Route taken", html.escape(route))}'
-            '</table>'
-        )
-
     show_result_dialog = None
     if _dialog_decorator is not None:
-        @_dialog_decorator("Delivery Result")
+        # 用不可见字符代替标题，去掉 "Delivery Result"
+        @_dialog_decorator("\u200b")
         def show_result_dialog(d, model_name):
-            st.markdown(build_banner_html(d), unsafe_allow_html=True)
-            with st.expander("📊 View Summary"):          # click to open / close (no rerun)
-                st.markdown(build_details_html(d, model_name), unsafe_allow_html=True)
-                dlg_c1, dlg_c2 = st.columns(2)
-                with dlg_c1:
-                    if st.button("🔁 Replay", key="dlg_replay", use_container_width=True):
-                        replay_order()
-                        st.rerun()
-                with dlg_c2:
-                    if st.button("🔄 New Order", key="dlg_new_order", use_container_width=True):
-                        go_to_order()
-                        st.rerun()
+            st.markdown(f"""
+                <style>
+                    /* 紧凑弹窗顶部间距，去掉标题占用的多余空白 */
+                    div[role="dialog"] header {{
+                        padding-bottom: 0 !important;
+                        min-height: 24px !important;
+                    }}
+                </style>
+                <div style="text-align:center; padding: 6px 10px 22px 10px;">
+                    <div style="
+                        width: 60px; height: 60px; margin: 0 auto 14px auto;
+                        border-radius: 50%;
+                        background: linear-gradient(135deg, #14b8a6, #0891b2);
+                        color: #ffffff; font-size: 30px; font-weight: 900;
+                        display: flex; align-items: center; justify-content: center;
+                        box-shadow: 0 8px 20px rgba(8, 145, 178, 0.28);
+                    ">✓</div>
+                    <div style="color:#0f172a; font-size:24px; font-weight:900; letter-spacing:-0.3px;">
+                        Delivery Successful
+                    </div>
+                    <div style="color:#0d9488; font-size:44px; font-weight:900; margin-top:12px; line-height:1.1;">
+                        {d["total_score"]} <span style="font-size:22px; font-weight:800;">pts</span>
+                    </div>
+                    <div style="color:#94a3b8; font-size:11px; font-weight:700; letter-spacing:1.2px; margin-top:4px;">
+                        FINAL SCORE
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+
+            if st.button("View Summary", key="btn_go_summary", use_container_width=True):
+                st.session_state.page = "summary"
+                st.rerun()
 
     # Compact Model Status Pill (supports all 4 linked tabular RL models)
     if policy_table is not None:
@@ -1517,11 +1475,9 @@ elif st.session_state.page == "tracking":
             "obstacle_pills_html": render_obstacle_pills_html(env),
         }
         st.session_state.sim_finished = True
-        if info.get("outcome") == "goal":
-            st.balloons()
-            if POPUP_ON_SUCCESS:
-                st.session_state.show_result_popup = True   # open the pop-up once, after this run finishes
-
+       
+        if info.get("outcome") == "goal" and POPUP_ON_SUCCESS:
+            st.session_state.show_result_popup = True
     else:
         # Restore finished state cleanly on rerun (e.g., after Export CSV)
         d = st.session_state.sim_data
