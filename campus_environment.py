@@ -34,7 +34,17 @@ class CampusDeliveryEnv(gym.Env):
         self.steps = 0
         self._episode_over = False
         self.all_nodes = list(range(36))
-        self.node_names = {0:"Red Bricks",1:"DK4",2:"Rimba",3:"Block C",4:"Yum Yum",5:"Arena",6:"Block M",7:"Library",8:"Roof Top D",9:"Hostel",10:"Block Q (West Slope)",11:"DK W",12:"Carpark C",13:"Roof Top C",14:"DKABE",15:"Roof Top E",16:"Clubhouse",17:"Block W",18:"Block V",19:"DTAR",20:"Swimming Pool",21:"Sport Complex",22:"FM (CITC)",23:"Roof Top A",24:"Bus Stop A",25:"Carpark A",26:"DSA",27:"Basketball Court",28:"Roof Top B",29:"Car Park B",30:"Casaurina Cafe",31:"East Slope",32:"Bus Stop B",33:"Roof Top F",34:"Roof Top G",35:"Carpark D"}
+        self.node_names = {
+            0: "Red Bricks", 1: "DK4", 2: "Rimba", 3: "Block C", 4: "Yum Yum",
+            5: "Arena", 6: "Block M", 7: "Library", 8: "Roof Top D", 9: "Hostel",
+            10: "Block Q (West Slope)", 11: "DK W", 12: "Carpark C", 13: "Roof Top C",
+            14: "DKABE", 15: "Roof Top E", 16: "Clubhouse", 17: "Block W", 18: "Block V",
+            19: "DTAR", 20: "Swimming Pool", 21: "Sport Complex", 22: "FM (CITC)",
+            23: "Roof Top A", 24: "Bus Stop A", 25: "Carpark A", 26: "DSA",
+            27: "Basketball Court", 28: "Roof Top B", 29: "Car Park B",
+            30: "Casaurina Cafe", 31: "East Slope", 32: "Bus Stop B",
+            33: "Roof Top F", 34: "Roof Top G", 35: "Carpark D"
+        }
         self.node_coords = {
             0: (6, 48), 1: (15, 48), 2: (21, 38), 3: (32, 38),
             4: (43, 38), 5: (58, 25), 6: (43, 47), 7: (43, 56),
@@ -46,7 +56,16 @@ class CampusDeliveryEnv(gym.Env):
             28: (51, 33), 29: (54, 56), 30: (94, 61), 31: (93, 52),
             32: (87, 45), 33: (82, 52), 34: (81, 41), 35: (84, 76)
         }
-        self.graph = {0:[1],1:[0,2,10],2:[1,3,26],3:[2,4],4:[3,6,26,27,28],5:[12,13,19,27,28],6:[4,7],7:[6,8,29],8:[7,9,11,15,21,35],9:[8,15,35],10:[1,11],11:[10,8],12:[5,14],13:[5,14],14:[12,13,15,33,34],15:[8,9,14,33],16:[17,20,29],17:[16,18],18:[17,19],19:[18,5],20:[16,21],21:[20,8],22:[23,25],23:[22,24],24:[23,26,27],25:[22,26],26:[2,4,24,25,27],27:[4,5,24,26],28:[4,5],29:[7,16],30:[31,35],31:[30,32,33],32:[31,34],33:[14,15,31],34:[14,32],35:[8,9,30]}
+        self.graph = {
+            0: [1], 1: [0, 2, 10], 2: [1, 3, 26], 3: [2, 4], 4: [3, 6, 26, 27, 28],
+            5: [12, 13, 19, 27, 28], 6: [4, 7], 7: [6, 8, 29], 8: [7, 9, 11, 15, 21, 35],
+            9: [8, 15, 35], 10: [1, 11], 11: [10, 8], 12: [5, 14], 13: [5, 14],
+            14: [12, 13, 15, 33, 34], 15: [8, 9, 14, 33], 16: [17, 20, 29], 17: [16, 18],
+            18: [17, 19], 19: [18, 5], 20: [16, 21], 21: [20, 8], 22: [23, 25],
+            23: [22, 24], 24: [23, 26, 27], 25: [22, 26], 26: [2, 4, 24, 25, 27],
+            27: [4, 5, 24, 26], 28: [4, 5], 29: [7, 16], 30: [31, 35], 31: [30, 32, 33],
+            32: [31, 34], 33: [14, 15, 31], 34: [14, 32], 35: [8, 9, 30]
+        }
         for node, neighbours in self.graph.items():
             for neighbour in neighbours:
                 assert node in self.graph[neighbour], f"Graph is not bidirectional: {node} -> {neighbour}"
@@ -54,11 +73,22 @@ class CampusDeliveryEnv(gym.Env):
 
         self.start_locations = [0, 4, 16, 22, 30]
         self.target_destinations = [5, 9, 2]
-        self.food_menus = {0:["Nasi Lemak","Roti Canai","Teh Tarik"],4:["Chicken Rice","Wantan Mee","Mixed Rice"],16:["Club Sandwich","Burger & Fries","Iced Lemon Tea"],22:["Japanese Bento","Onigiri","Oden"],30:["Western Chicken Chop","Fried Kuey Teow","Iced Coffee"]}
-        self.uncovered_paths = {frozenset({1,10}),frozenset({10,11}),frozenset({27,5}),frozenset({5,12}),frozenset({12,14}),frozenset({22,25}),frozenset({25,26}),frozenset({7,29}),frozenset({29,16}),frozenset({30,35}),frozenset({35,9}),frozenset({35,8})}
-        self.crowd_level = {7:1.5,6:1.5,3:1.5,26:1.5,14:1.5,4:1.8}
-        self.pedestrian_zones = {0,1,3,4,5,6,7,14,16,20,21,24,26,27,28,30,31,32}
-        self.car_zones = {3,4,5,8,10,12,21,23,25,26,27,28,29,33,34,35}
+        self.food_menus = {
+            0: ["Nasi Lemak", "Roti Canai", "Teh Tarik"],
+            4: ["Chicken Rice", "Wantan Mee", "Mixed Rice"],
+            16: ["Club Sandwich", "Burger & Fries", "Iced Lemon Tea"],
+            22: ["Japanese Bento", "Onigiri", "Oden"],
+            30: ["Western Chicken Chop", "Fried Kuey Teow", "Iced Coffee"]
+        }
+        self.uncovered_paths = {
+            frozenset({1, 10}), frozenset({10, 11}), frozenset({27, 5}),
+            frozenset({5, 12}), frozenset({12, 14}), frozenset({22, 25}),
+            frozenset({25, 26}), frozenset({7, 29}), frozenset({29, 16}),
+            frozenset({30, 35}), frozenset({35, 9}), frozenset({35, 8})
+        }
+        self.crowd_level = {7: 1.5, 6: 1.5, 3: 1.5, 26: 1.5, 14: 1.5, 4: 1.8}
+        self.pedestrian_zones = {0, 1, 3, 4, 5, 6, 7, 14, 16, 20, 21, 24, 26, 27, 28, 30, 31, 32}
+        self.car_zones = {3, 4, 5, 8, 10, 12, 21, 23, 25, 26, 27, 28, 29, 33, 34, 35}
         self.pedestrian_routes = [[3, 4]]
         self.car_routes = [[4, 27, 5, 28]]
         self.pedestrian_positions = [3, 6]
@@ -68,17 +98,20 @@ class CampusDeliveryEnv(gym.Env):
         self.pedestrian_prev = [None, None]
         self.car_prev = [None, None]
 
-        # "routes" mode: obstacles travel between hotspots along shortest paths
-        # (restaurants, library, arena, bus stops / car parks, main roads),
+        # "routes" mode: obstacles travel between hotspots along shortest paths,
         # wait there for a few steps, then pick a new hotspot.
         self.pedestrian_hotspots = [0, 4, 5, 7, 14, 16, 21, 24, 26, 30, 32]
         self.car_hotspots = [3, 4, 5, 8, 12, 21, 25, 26, 27, 35]
-        self.route_dwell = {"ped": (1, 3), "car": (1, 2)}  # waiting steps at a hotspot
+        self.route_dwell = {"ped": (1, 3), "car": (1, 2)}
         assert set(self.pedestrian_hotspots) <= self.pedestrian_zones
         assert set(self.car_hotspots) <= self.car_zones
         self._reset_route_state()
 
-        self.longer_paths = {frozenset({23,24}):-3,frozenset({24,27}):-2,frozenset({1,10}):-2,frozenset({7,8}):-2,frozenset({14,15}):-2,frozenset({30,35}):-2}
+        self.longer_paths = {
+            frozenset({23, 24}): -3, frozenset({24, 27}): -2,
+            frozenset({1, 10}): -2, frozenset({7, 8}): -2,
+            frozenset({14, 15}): -2, frozenset({30, 35}): -2
+        }
         self.action_space = spaces.Discrete(37)
         self.observation_mode = "tabular"
         self.observation_space = spaces.Tuple((
@@ -94,7 +127,6 @@ class CampusDeliveryEnv(gym.Env):
         self.current_time_of_day = None
         self.current_traffic = None
         self.selected_food = None
-        self.rain_safe_return = None
 
     # ------------------------------------------------------------
     # Helpers
@@ -103,60 +135,18 @@ class CampusDeliveryEnv(gym.Env):
     def _choice(self, seq):
         return seq[int(self.np_random.integers(len(seq)))]
 
-    
     def valid_actions(self, location=None):
+        """Action masking: only allow physically connected roads (+ Wait)."""
         loc = self.current_location if location is None else location
 
         if loc is None or loc not in self.graph:
             raise ValueError("Invalid location (did you call reset() first?).")
 
         actions = list(self.graph[loc])
-
-        # Sunny: all neighbouring roads are allowed.
-        if self.current_weather != 1:
-            return actions + ([36] if self.allow_wait else [])
-
-        occupied = self.occupied_nodes()
-
-        # Identify covered roads.
-        covered_actions = [
-            node for node in actions
-            if frozenset({loc, node}) not in self.uncovered_paths
-        ]
-
-        # Covered roads that are not blocked by obstacles.
-        safe_covered_actions = [
-            node for node in covered_actions
-            if node not in occupied
-        ]
-
-        if safe_covered_actions:
-            result = safe_covered_actions
-
-        elif self.rain_safe_return is not None:
-            if (
-                self.rain_safe_return in actions
-                and self.rain_safe_return not in self.occupied_nodes()
-            ):
-                result = [self.rain_safe_return]
-            else:
-                result = []
-
-        elif covered_actions:
-            result = []
-
-        else:
-            # No covered road and no previous safe location.
-            # Allow an uncovered road as a last resort.
-            result = [
-                node for node in actions
-                if node not in occupied
-            ]
-
         if self.allow_wait:
-            result.append(36)
+            actions.append(36)
 
-        return result
+        return actions
 
     def obstacle_counts(self):
         """Return the number of pedestrians and cars for each time period."""
@@ -165,11 +155,12 @@ class CampusDeliveryEnv(gym.Env):
             1: (3, 2),  # Evening
             2: (1, 1)   # Night
         }
-
         return counts[self.current_time_of_day]
 
     def obstacle_prob(self, node):
-        base = 0.25 if self.current_weather == 0 else 0.35
+        """Estimated obstacle encounter risk used by Dijkstra edge_cost.
+        Scales with Time of Day and building crowd density."""
+        base = 0.25
 
         # Time-of-day traffic risk
         time_factor = {
@@ -183,7 +174,6 @@ class CampusDeliveryEnv(gym.Env):
             base * time_factor * self.crowd_level.get(node, 1.0)
         )
 
-
     def visibility_penalty(self):
         return {
             0: 0,    # Day
@@ -195,8 +185,9 @@ class CampusDeliveryEnv(gym.Env):
         edge = frozenset({u, v})
         cost = -self.longer_paths.get(edge, -1)
 
+        # Updated to 40 so sheltered paths remain strictly optimal even at night
         if self.current_weather == 1 and edge in self.uncovered_paths:
-            cost += 15
+            cost += 40
 
         if v != self.target_destination and (
             v in self.pedestrian_zones or v in self.car_zones
@@ -265,15 +256,17 @@ class CampusDeliveryEnv(gym.Env):
                 spaces.Discrete(3)
             ))
         else:
+            # 3 pedestrian slots + 2 car slots; value 36 denotes an inactive slot
             self.observation_space = spaces.Tuple((
                 spaces.Discrete(36),
                 spaces.Discrete(36),
                 spaces.Discrete(2),
                 spaces.Discrete(3),
-                spaces.Discrete(36),
-                spaces.Discrete(36),
-                spaces.Discrete(36),
-                spaces.Discrete(36)
+                spaces.Discrete(37),
+                spaces.Discrete(37),
+                spaces.Discrete(37),
+                spaces.Discrete(37),
+                spaces.Discrete(37)
             ))
 
     def _get_tabular_obs(self):
@@ -302,8 +295,9 @@ class CampusDeliveryEnv(gym.Env):
         )
 
     def _get_full_obs(self):
-        ped_positions = self.pedestrian_positions + [0, 0]
-        car_positions = self.car_positions + [0, 0]
+        # Pad inactive obstacle slots with 36 ("None") instead of node 0
+        ped_positions = (self.pedestrian_positions + [36, 36, 36])[:3]
+        car_positions = (self.car_positions + [36, 36])[:2]
 
         return (
             int(self.current_location),
@@ -312,6 +306,7 @@ class CampusDeliveryEnv(gym.Env):
             int(self.current_time_of_day),
             int(ped_positions[0]),
             int(ped_positions[1]),
+            int(ped_positions[2]),
             int(car_positions[0]),
             int(car_positions[1])
         )
@@ -510,11 +505,9 @@ class CampusDeliveryEnv(gym.Env):
             n = prev[n]
         return path[::-1]
 
-    
     def _route_step(self, kind, i):
         """One purposeful step: wait at a hotspot, else follow the planned path,
         else pick a new hotspot and start walking."""
-
         if kind == "ped":
             zone = self.pedestrian_zones
             hotspots = self.pedestrian_hotspots
@@ -535,7 +528,6 @@ class CampusDeliveryEnv(gym.Env):
 
         if not st["path"]:
             paths = {}
-
             for h in hotspots:
                 if h != pos:
                     p = self._zone_path(pos, h, zone)
@@ -543,7 +535,6 @@ class CampusDeliveryEnv(gym.Env):
                         paths[h] = p
 
             cands = list(paths)
-
             if not cands:
                 return pos
 
@@ -551,9 +542,7 @@ class CampusDeliveryEnv(gym.Env):
                 [self.crowd_level.get(h, 1.0) for h in cands],
                 dtype=float
             )
-
             cum = np.cumsum(weights / weights.sum())
-
             goal = cands[
                 min(
                     int(np.searchsorted(cum, u_goal, side="right")),
@@ -567,36 +556,18 @@ class CampusDeliveryEnv(gym.Env):
         nxt = st["path"].pop(0)
 
         if not st["path"]:  # Obstacle has arrived at its hotspot
-
             if self.current_time_of_day == 0:       # Day
-                dwell_ranges = {
-                    "ped": (1, 3),
-                    "car": (1, 2)
-                }
-
+                dwell_ranges = {"ped": (1, 3), "car": (1, 2)}
             elif self.current_time_of_day == 1:     # Evening
-                dwell_ranges = {
-                    "ped": (0, 2),
-                    "car": (0, 2)
-                }
-
+                dwell_ranges = {"ped": (0, 2), "car": (0, 2)}
             else:                                   # Night
-                dwell_ranges = {
-                    "ped": (2, 4),
-                    "car": (2, 3)
-                }
+                dwell_ranges = {"ped": (2, 4), "car": (2, 3)}
 
             lo, hi = dwell_ranges[kind]
-
-            st["dwell"] = lo + min(
-                int(u_dwell * (hi - lo + 1)),
-                hi - lo
-            )
-
+            st["dwell"] = lo + min(int(u_dwell * (hi - lo + 1)), hi - lo)
             st["goal"] = None
 
         return int(nxt)
-
 
     def _move_routes(self):
         for i in range(len(self.pedestrian_positions)):
@@ -613,10 +584,14 @@ class CampusDeliveryEnv(gym.Env):
         """What each obstacle is doing (for display): node, goal (or None), waiting."""
         out = {}
         for kind, pos in (("ped", self.pedestrian_positions), ("car", self.car_positions)):
-            out[kind] = [{"node": pos[i],
-                          "goal": self._route[kind][i]["goal"],
-                          "waiting": self._route[kind][i]["dwell"] > 0}
-                         for i in range(len(pos))]
+            out[kind] = [
+                {
+                    "node": pos[i],
+                    "goal": self._route[kind][i]["goal"],
+                    "waiting": self._route[kind][i]["dwell"] > 0
+                }
+                for i in range(len(pos))
+            ]
         return out
 
     def _move_obstacles(self):
@@ -655,20 +630,19 @@ class CampusDeliveryEnv(gym.Env):
             raise ValueError("Weather must be 0 (Sunny) or 1 (Rainy).")
         if "time_of_day" in options:
             value = options["time_of_day"]
-
             if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
                 raise ValueError("Time of day must be 0 (Day), 1 (Evening) or 2 (Night).")
-
             if value not in (0, 1, 2):
                 raise ValueError("Time of day must be 0 (Day), 1 (Evening) or 2 (Night).")
 
         self.steps = 0
         self._episode_over = False
-        self.rain_safe_return = None
 
         # Destination
-        self.target_destination = (options["target"] if "target" in options
-                                   else self._choice(self.target_destinations))
+        self.target_destination = (
+            options["target"] if "target" in options
+            else self._choice(self.target_destinations)
+        )
 
         # Starting restaurant
         if "start" in options:
@@ -680,7 +654,7 @@ class CampusDeliveryEnv(gym.Env):
             self.current_location = self._choice(candidates)
         else:
             self.current_location = self._choice(self.start_locations)
-        
+
         # Weather
         self.current_weather = (
             options["weather"]
@@ -698,20 +672,13 @@ class CampusDeliveryEnv(gym.Env):
         # Food
         if "food" in options:
             self.selected_food = options["food"]
-
             if self.selected_food not in self.food_menus[self.current_location]:
-                raise ValueError(
-                    "Food item is not available at the selected restaurant."
-                )
+                raise ValueError("Food item is not available at the selected restaurant.")
         else:
-            self.selected_food = self._choice(
-                self.food_menus[self.current_location]
-            )
+            self.selected_food = self._choice(self.food_menus[self.current_location])
 
-
-                # Determine obstacle numbers based on time of day
+        # Determine obstacle numbers based on time of day
         pedestrian_count, car_count = self.obstacle_counts()
-
         self.pedestrian_prev = [None] * pedestrian_count
         self.car_prev = [None] * car_count
 
@@ -721,7 +688,6 @@ class CampusDeliveryEnv(gym.Env):
                 self.pedestrian_zones,
                 count=pedestrian_count
             )
-
             self.car_positions = self._spawn_walkers(
                 self.car_zones,
                 count=car_count
@@ -733,7 +699,6 @@ class CampusDeliveryEnv(gym.Env):
                 self.pedestrian_hotspots,
                 count=pedestrian_count
             )
-
             self.car_positions = self._spawn_walkers(
                 self.car_zones,
                 self.car_hotspots,
@@ -748,7 +713,6 @@ class CampusDeliveryEnv(gym.Env):
                 (i for i, n in enumerate(pedestrian_route)
                  if n != self.current_location), 0
             )
-
             car_index = next(
                 (i for i, n in enumerate(car_route)
                  if n != self.current_location), 0
@@ -763,7 +727,6 @@ class CampusDeliveryEnv(gym.Env):
                 self.pedestrian_zones,
                 count=pedestrian_count - 1
             )
-
             self.car_positions = [
                 car_route[car_index]
             ] + self._spawn_walkers(
@@ -773,7 +736,6 @@ class CampusDeliveryEnv(gym.Env):
 
         # Initialize route information for the spawned obstacles
         self._reset_route_state()
-
 
         # Update traffic and return the initial observation
         self.current_traffic = self._get_tabular_obs()[4]
@@ -807,6 +769,8 @@ class CampusDeliveryEnv(gym.Env):
 
         self.steps += 1
 
+        # Record traffic sensor reading BEFORE the robot acts
+        prev_traffic = self.current_traffic
         old_pedestrian_positions = self.pedestrian_positions.copy()
         old_car_positions = self.car_positions.copy()
         previous_location = self.current_location
@@ -827,8 +791,7 @@ class CampusDeliveryEnv(gym.Env):
             blocked_node = action
 
         else:
-            # Record contact BEFORE obstacles move, so walking into someone
-            # cannot be avoided by them stepping away in the same tick.
+            # Record contact BEFORE obstacles move
             if action in self.pedestrian_positions:
                 contact = "ped"
             elif action in self.car_positions:
@@ -839,65 +802,61 @@ class CampusDeliveryEnv(gym.Env):
             # Normal route movement reward
             reward += self.longer_paths.get(path_edge, -1)
 
-            # Weather penalty
+            # Weather penalty (updated to -40 to outweigh night visibility + detour costs)
             if self.current_weather == 1 and path_edge in self.uncovered_paths:
-                reward -= 15
+                reward -= 40
                 rain_violation = True
 
             # Reduced visibility penalty
-            # Reduced visibility penalty
             reward += self.visibility_penalty()
 
-            # Track the previous safe location during rainy weather.
-            # Track the previous safe location during rainy weather.
-            if self.current_weather == 1:
-
-              if action == self.rain_safe_return:
-                  self.rain_safe_return = None
-
-              elif path_edge in self.uncovered_paths:
-                  if self.rain_safe_return is None:
-                      self.rain_safe_return = self.current_location
-
-              else:
-                  self.rain_safe_return = None
-
             self.current_location = action
+
+        # Delivery completes immediately upon safely entering an unoccupied destination
+        if outcome == "move" and contact is None and self.current_location == self.target_destination:
+            reward += 100
+            terminated = True
+            outcome = "goal"
 
         # Obstacles move
         self._move_obstacles()
 
-        # Node collisions
-        if self.current_location in self.pedestrian_positions or contact == "ped":
-            reward -= 25
-            terminated = True
-            outcome = "ped_collision"
-        elif self.current_location in self.car_positions or contact == "car":
-            reward -= 50
-            terminated = True
-            outcome = "car_collision"
+        # Collisions only happen if delivery is still ongoing and the robot did NOT
+        # safely pull over via WAIT (36) or defensive RETREAT
+        if not terminated and outcome not in ("wait", "retreat"):
+            hit_ped = (self.current_location in self.pedestrian_positions) or (contact == "ped")
+            hit_car = (self.current_location in self.car_positions) or (contact == "car")
 
-        # Edge-swap collisions
-        if not terminated and self.current_location != previous_location:
-            for old_pos, new_pos in zip(old_pedestrian_positions, self.pedestrian_positions):
-                if previous_location == new_pos and self.current_location == old_pos:
+            # Edge-swap collisions
+            if not (hit_ped or hit_car) and self.current_location != previous_location:
+                for old_pos, new_pos in zip(old_pedestrian_positions, self.pedestrian_positions):
+                    if previous_location == new_pos and self.current_location == old_pos:
+                        hit_ped = True
+                        break
+                if not hit_ped:
+                    for old_pos, new_pos in zip(old_car_positions, self.car_positions):
+                        if previous_location == new_pos and self.current_location == old_pos:
+                            hit_car = True
+                            break
+
+            if hit_ped or hit_car:
+                # If sensor was CLEAR (0) before moving, an obstacle 2 hops away stepped
+                # into the same node simultaneously -> trigger safe emergency retreat (-3)
+                if prev_traffic == 0 and self.contact_mode == "retreat":
+                    self.current_location = previous_location
+                    reward = self.retreat_penalty
+                    outcome = "retreat"
+                    retreated = True
+                    blocked_node = action
+                    rain_violation = False
+                elif hit_car:
+                    reward -= 50
+                    terminated = True
+                    outcome = "car_collision"
+                else:
                     reward -= 25
                     terminated = True
                     outcome = "ped_collision"
-                    break
-            if not terminated:
-                for old_pos, new_pos in zip(old_car_positions, self.car_positions):
-                    if previous_location == new_pos and self.current_location == old_pos:
-                        reward -= 50
-                        terminated = True
-                        outcome = "car_collision"
-                        break
-
-        # Delivery success
-        if not terminated and self.current_location == self.target_destination:
-            reward += 100
-            terminated = True
-            outcome = "goal"
 
         self.current_traffic = self._get_tabular_obs()[4]
 
