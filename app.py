@@ -1574,3 +1574,143 @@ elif st.session_state.page == "tracking":
     # ---- Open the centered success pop-up (only once, right after the delivery finishes) ----
     if st.session_state.pop("show_result_popup", False) and show_result_dialog is not None:
         show_result_dialog(d, selected_model)
+
+# ==========================================
+# VIEW 3: DELIVERY SUMMARY PAGE
+# ==========================================
+
+elif st.session_state.page == "summary":
+
+    if not st.session_state.get("sim_data"):
+        st.session_state.page = "order"
+        st.rerun()
+
+    d = st.session_state.sim_data
+    selected_model = st.session_state.get("selected_model", "Q-Learning")
+    time_labels = ["Day", "Evening", "Night"]
+    weather_txt = "Rainy" if d["current_weather"] == 1 else "Sunny"
+    waits = sum(1 for r in d["log_records"] if r["Outcome"] == "wait")
+    rain_txt = "100% Dry" if d["rain_violations"] == 0 else f"{d['rain_violations']} Open-Air"
+    start_name = env.node_names[d["visited_nodes"][0]]
+    target_name = env.node_names[d["target_destination"]]
+    route_str = " ➜ ".join(env.node_names[n] for n in d["visited_nodes"])
+
+    # Top Title & Back to Map
+    top_c1, top_c2 = st.columns([4.2, 1])
+    with top_c1:
+        st.markdown("""
+            <div class="section-header" style="margin:4px 0 8px 0;">
+                <div class="section-header-left">
+                    <span class="dot"></span>
+                    <span class="label" style="font-size:20px;">Delivery Summary</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    with top_c2:
+        if st.button("← Back to Map", use_container_width=True):
+            st.session_state.page = "tracking"
+            st.rerun()
+
+    # Hero Score Banner
+    st.markdown(f"""
+        <div class="hero-result-card">
+            <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:18px;">
+                <div>
+                    <div style="color:#0d9488; font-size:24px; font-weight:900; margin-bottom:4px;">
+                        Delivery Successful
+                    </div>
+                    <div style="color:#475569; font-size:14px;">
+                        <b>{html.escape(d['selected_food'])}</b> delivered from
+                        <b>{html.escape(start_name)}</b> to <b>{html.escape(target_name)}</b>
+                        via <b>{html.escape(selected_model)}</b>.
+                    </div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="color:#0d9488; font-size:34px; font-weight:900; line-height:1;">
+                        {d['total_score']} pts
+                    </div>
+                    <div style="color:#64748b; font-size:11px; font-weight:700; letter-spacing:0.8px; margin-top:4px;">
+                        FINAL SCORE
+                    </div>
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # 4 Key Metrics
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Steps Taken", d["step_num"])
+    k2.metric("Retreats", d["retreat_count"])
+    k3.metric("Waits", waits)
+    k4.metric("Rain Safety", rain_txt)
+
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+
+    # Mission Details & Route Bento Card
+    with st.container(border=True):
+        st.markdown('<div class="bento-marker"></div>', unsafe_allow_html=True)
+        st.markdown("""
+            <div class="section-header">
+                <div class="section-header-left">
+                    <span class="dot"></span>
+                    <span class="label">Mission Breakdown</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown(f"""
+            <div class="snapshot-grid">
+                <div class="snapshot-item">
+                    <div class="snap-label">Order Item</div>
+                    <div class="snap-val">{html.escape(d["selected_food"])}</div>
+                </div>
+                <div class="snapshot-item">
+                    <div class="snap-label">AI Model</div>
+                    <div class="snap-val">{html.escape(selected_model)}</div>
+                </div>
+                <div class="snapshot-item">
+                    <div class="snap-label">Mission Route</div>
+                    <div class="snap-val">{html.escape(start_name)} ➜ {html.escape(target_name)}</div>
+                </div>
+                <div class="snapshot-item">
+                    <div class="snap-label">Environment Conditions</div>
+                    <div class="snap-val">{weather_txt} · {time_labels[d["current_time_of_day"]]}</div>
+                </div>
+            </div>
+            <div class="advisor-strip" style="margin-bottom:6px;">
+                <b>Full Path Taken:</b> {html.escape(route_str)}
+            </div>
+        """, unsafe_allow_html=True)
+
+    # Step-by-Step Table
+    with st.container(border=True):
+        st.markdown('<div class="bento-marker"></div>', unsafe_allow_html=True)
+        st.markdown("""
+            <div class="section-header">
+                <div class="section-header-left">
+                    <span class="dot"></span>
+                    <span class="label">Step-by-Step Delivery Log</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        st.dataframe(pd.DataFrame(d["log_records"]), use_container_width=True, hide_index=True)
+
+    # Bottom Action Buttons
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+    csv_bytes = pd.DataFrame(d["log_records"]).to_csv(index=False).encode("utf-8")
+    b1, b2, b3 = st.columns(3)
+    with b1:
+        if st.button("🔁 Replay Delivery", use_container_width=True):
+            st.session_state.page = "tracking"
+            replay_order()
+            st.rerun()
+    with b2:
+        st.button("🔄 New Order", on_click=go_to_order, use_container_width=True)
+    with b3:
+        st.download_button(
+            label="📥 Export Log (CSV)",
+            data=csv_bytes,
+            file_name=f"delivery_log_{selected_model.lower().replace(' ', '_')}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
