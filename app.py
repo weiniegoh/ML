@@ -28,11 +28,11 @@ except ImportError:
 # 0. SETTINGS (ANIMATION & MODEL)
 # ==========================================
 
-INTERP_FRAMES = 4                # sub-frames per step for smooth gliding
-FRAME_DELAY = 0.14               # seconds per sub-frame (increase to slow down)
+INTERP_FRAMES = 4                # sub-frames per step for smooth gliding (no teleporting)
+FRAME_DELAY = 0.14               # seconds per sub-frame (increase to slow down movement)
 STEP_PAUSE = 0.35                # brief pause after arriving at each node
-USE_ANTI_BACKTRACKING = False    # set False to match evaluate_agent() in .ipynb
-OBSTACLE_MODE = "routes"         # change to "random" if your .ipynb trained on random
+USE_ANTI_BACKTRACKING = True     # must match the setting used in training
+OBSTACLE_MODE = "routes"         # must match OBSTACLE_MODE used in training
 Q_TABLE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "q_table.npy")
 
 
@@ -46,86 +46,53 @@ st.set_page_config(
     layout="wide"
 )
 
-if "page" not in st.session_state:
-    st.session_state.page = "order"
-
 
 # ==========================================
-# 2. SMART STICKY HEADER + RIGHT DRAWER JS
-# - Hide sticky header on scroll down, reveal on scroll up
-# - Inject floating right-edge handle for collapsible Simulation Log drawer
-#   (stays open/closed without interrupting the live animation loop)
+# 2. SMART STICKY HEADER JAVASCRIPT
+# Hide header on scroll down, reveal on scroll up
 # ==========================================
 
-is_tracking_js = "true" if st.session_state.page == "tracking" else "false"
-
-interactive_ui_js = f"""
+smart_scroll_js = """
 <script>
 const parentWin = window.parent;
 const parentDoc = window.parent.document;
-const isTrackingPage = {is_tracking_js};
 
-// 1. Smart Sticky Header scroll listener (init once)
-if (!parentWin._campusSmartHeaderInit) {{
+if (!parentWin._campusSmartHeaderInit) {
     let lastScrollY = 0;
     let ticking = false;
 
-    const scrollHandler = function(e) {{
-        if (!ticking) {{
-            parentWin.requestAnimationFrame(function() {{
+    const scrollHandler = function(e) {
+        if (!ticking) {
+            parentWin.requestAnimationFrame(function() {
                 let currentScrollY = parentWin.scrollY;
-                if (e.target && e.target.scrollTop !== undefined && e.target.tagName !== 'IFRAME') {{
+                if (e.target && e.target.scrollTop !== undefined && e.target.tagName !== 'IFRAME') {
                     currentScrollY = e.target.scrollTop;
-                }}
+                }
 
-                if (currentScrollY <= 70) {{
+                if (currentScrollY <= 70) {
                     parentDoc.body.classList.remove('hide-smart-header');
-                }} else if (currentScrollY > lastScrollY + 15) {{
+                } else if (currentScrollY > lastScrollY + 15) {
                     parentDoc.body.classList.add('hide-smart-header');
-                }} else if (currentScrollY < lastScrollY - 15) {{
+                } else if (currentScrollY < lastScrollY - 15) {
                     parentDoc.body.classList.remove('hide-smart-header');
-                }}
+                }
                 lastScrollY = currentScrollY;
                 ticking = false;
-            }});
+            });
             ticking = true;
-        }}
-    }};
+        }
+    };
 
     parentDoc.addEventListener('scroll', scrollHandler, true);
     parentWin._campusSmartHeaderInit = true;
-}}
-
-// 2. Floating Right Sidebar Toggle Handle for Simulation Log
-let btn = parentDoc.getElementById('campus-log-drawer-btn');
-if (!btn) {{
-    btn = parentDoc.createElement('button');
-    btn.id = 'campus-log-drawer-btn';
-    btn.type = 'button';
-    btn.innerHTML = '◀&nbsp; Live Log';
-    btn.onclick = function() {{
-        const isOpen = parentDoc.body.classList.toggle('log-drawer-open');
-        btn.innerHTML = isOpen ? '▶&nbsp; Hide Log' : '◀&nbsp; Live Log';
-    }};
-    parentDoc.body.appendChild(btn);
-}}
-
-// Show handle only on View 2 (Live Tracking); auto-close drawer on View 1
-if (isTrackingPage) {{
-    btn.style.display = 'flex';
-    const isOpen = parentDoc.body.classList.contains('log-drawer-open');
-    btn.innerHTML = isOpen ? '▶&nbsp; Hide Log' : '◀&nbsp; Live Log';
-}} else {{
-    btn.style.display = 'none';
-    parentDoc.body.classList.remove('log-drawer-open');
-}}
+}
 </script>
 """
-components.html(interactive_ui_js, height=0, width=0)
+components.html(smart_scroll_js, height=0, width=0)
 
 
 # ==========================================
-# 3. ADVANCED CSS (LIGHT MODE + BENTO + RIGHT DRAWER + MODAL)
+# 3. ADVANCED CSS (LIGHT MODE + BENTO + 3D UI)
 # ==========================================
 
 st.markdown("""
@@ -144,9 +111,9 @@ st.markdown("""
         background-color: #eef4f9 !important;
     }
     .block-container {
-        padding-top: 1.05rem !important;
+        padding-top: 1.1rem !important;
         padding-bottom: 1.8rem !important;
-        max-width: 1460px;
+        max-width: 1440px;
     }
 
     /* ---- Base text visibility ---- */
@@ -161,31 +128,11 @@ st.markdown("""
         color: #1e293b !important;
     }
 
-    /* ---- Force Light Theme inside Centered Modal Dialog ---- */
-    [data-testid="stDialog"] [role="dialog"],
-    div[role="dialog"] {
-        background-color: #ffffff !important;
-        color: #0f172a !important;
-        border-radius: 20px !important;
-        border: 1px solid #bae6fd !important;
-        box-shadow: 0 24px 60px rgba(11, 25, 44, 0.28) !important;
-        max-width: 640px !important;
-        width: 92vw !important;
-    }
-    div[role="dialog"] h1, div[role="dialog"] h2, div[role="dialog"] h3,
-    div[role="dialog"] p, div[role="dialog"] span, div[role="dialog"] label {
-        color: #0f172a !important;
-    }
-    div[role="dialog"] button[aria-label="Close"] svg {
-        fill: #475569 !important;
-        color: #475569 !important;
-    }
-
     /* ---- Smart Sticky Centered Banner (No Emoji) ---- */
     div.element-container:has(.campus-header) {
         position: sticky !important;
         top: 0.7rem !important;
-        z-index: 999 !important;
+        z-index: 9999 !important;
         transition: transform 0.38s cubic-bezier(0.3, 0, 0.2, 1) !important;
     }
     body.hide-smart-header div.element-container:has(.campus-header) {
@@ -194,8 +141,8 @@ st.markdown("""
 
     .campus-header {
         width: 100%;
-        padding: 20px 32px;
-        margin-bottom: 10px;
+        padding: 22px 32px;
+        margin-bottom: 12px;
         border-radius: 18px;
         position: relative;
         overflow: hidden;
@@ -225,7 +172,7 @@ st.markdown("""
         z-index: 2;
         margin: 0;
         color: #ffffff !important;
-        font-size: 29px;
+        font-size: 30px;
         font-weight: 900;
         letter-spacing: 0.4px;
         text-shadow: 0 0 16px rgba(125, 211, 252, 0.55), 0 0 28px rgba(6, 182, 212, 0.35);
@@ -252,7 +199,7 @@ st.markdown("""
         border: 1px solid #dbeafe !important;
         border-top: 4px solid #0891b2 !important;
         border-radius: 18px !important;
-        padding: 10px 16px 14px 16px !important;
+        padding: 10px 16px 16px 16px !important;
         box-shadow: 0 8px 22px rgba(14, 116, 144, 0.08) !important;
         transition: transform 0.25s ease, box-shadow 0.25s ease !important;
     }
@@ -264,12 +211,12 @@ st.markdown("""
     /* ---- Section Headers with Glowing Dot ---- */
     .section-header {
         display: flex; align-items: center; justify-content: space-between;
-        margin: 2px 0 10px 0;
+        margin: 2px 0 12px 0;
         flex-wrap: wrap;
         gap: 8px;
     }
     .section-header-left {
-        display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+        display: flex; align-items: center; gap: 10px;
     }
     .section-header .dot {
         width: 9px; height: 9px; border-radius: 50%;
@@ -351,34 +298,34 @@ st.markdown("""
     }
 
     /* ---- 3D Tactile Primary Buttons ---- */
-    div.stButton > button,
-    [data-testid="stBaseButton-secondary"],
-    [data-testid="stBaseButton-primary"] {
+    .stApp div.stButton > button,
+    .stApp [data-testid="stBaseButton-secondary"],
+    .stApp [data-testid="stBaseButton-primary"] {
         width: 100%;
         background: linear-gradient(180deg, #0d9488 0%, #0891b2 55%, #0e7490 100%) !important;
         border: none !important;
         border-bottom: 3px solid #155e75 !important;
         border-radius: 12px !important;
-        padding: 10px 18px !important;
+        padding: 10px 20px !important;
         font-weight: 800 !important;
         box-shadow: 0 5px 0 #155e75, 0 8px 18px rgba(8, 145, 178, 0.28) !important;
         transform: translateY(0);
         transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.2s ease !important;
     }
-    div.stButton > button,
-    div.stButton > button *,
-    [data-testid="stBaseButton-secondary"] *,
-    [data-testid="stBaseButton-primary"] * {
+    .stApp div.stButton > button,
+    .stApp div.stButton > button *,
+    .stApp [data-testid="stBaseButton-secondary"] *,
+    .stApp [data-testid="stBaseButton-primary"] * {
         color: #ffffff !important;
     }
-    div.stButton > button:hover,
-    [data-testid="stBaseButton-secondary"]:hover {
+    .stApp div.stButton > button:hover,
+    .stApp [data-testid="stBaseButton-secondary"]:hover {
         background: linear-gradient(180deg, #14b8a6 0%, #06b6d4 55%, #0891b2 100%) !important;
         transform: translateY(-2px);
         box-shadow: 0 7px 0 #155e75, 0 14px 24px rgba(8, 145, 178, 0.36) !important;
     }
-    div.stButton > button:active,
-    [data-testid="stBaseButton-secondary"]:active {
+    .stApp div.stButton > button:active,
+    .stApp [data-testid="stBaseButton-secondary"]:active {
         transform: translateY(3px);
         box-shadow: 0 2px 0 #155e75, 0 4px 8px rgba(8, 145, 178, 0.26) !important;
     }
@@ -390,7 +337,7 @@ st.markdown("""
         border: 1px solid #bae6fd !important;
         border-bottom: 3px solid #0e7490 !important;
         border-radius: 12px !important;
-        padding: 10px 18px !important;
+        padding: 10px 20px !important;
         font-weight: 800 !important;
         width: 100%;
         box-shadow: 0 5px 0 #0e7490, 0 8px 16px rgba(14, 116, 144, 0.12) !important;
@@ -455,7 +402,65 @@ st.markdown("""
     .risk-low { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
     .risk-med { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
 
-    /* ---- Live Obstacle Pills (Below Full-Width Map) ---- */
+    /* ---- View 2: Integrated Side-by-Side Live Log Panel ---- */
+    .log-panel-box {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        padding: 12px;
+        height: 545px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .log-panel-box::-webkit-scrollbar { width: 6px; }
+    .log-panel-box::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
+    .log-entry {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-left: 4px solid #0891b2;
+        border-radius: 10px;
+        padding: 9px 11px;
+        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+        transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+    .log-entry:hover {
+        transform: translateX(2px);
+        box-shadow: 0 4px 10px rgba(14, 116, 144, 0.10);
+    }
+    .log-entry.goal { border-left-color: #16a34a; background: #f0fdf4; }
+    .log-entry.wait, .log-entry.retreat { border-left-color: #f59e0b; background: #fffbeb; }
+    .log-entry.collision { border-left-color: #dc2626; background: #fef2f2; }
+    .log-entry-top {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 3px;
+    }
+    .log-step-tag {
+        font-size: 11px; font-weight: 800; color: #0e7490;
+        text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .log-reward-pos {
+        font-size: 11px; font-weight: 800; color: #15803d;
+        background: #dcfce7; padding: 1px 7px; border-radius: 999px;
+    }
+    .log-reward-neg {
+        font-size: 11px; font-weight: 800; color: #475569;
+        background: #f1f5f9; padding: 1px 7px; border-radius: 999px;
+    }
+    .log-reward-bad {
+        font-size: 11px; font-weight: 800; color: #b91c1c;
+        background: #fee2e2; padding: 1px 7px; border-radius: 999px;
+    }
+    .log-msg {
+        font-size: 12.5px; font-weight: 600; color: #1e293b; line-height: 1.35;
+    }
+    .log-empty {
+        margin: auto; text-align: center; color: #64748b;
+        font-size: 13px; padding: 20px;
+    }
+
+    /* ---- Live Obstacle Pills (Below Map inside Same Box) ---- */
     .obstacle-pill-grid {
         display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;
     }
@@ -472,214 +477,32 @@ st.markdown("""
     }
     .obstacle-pill.car { border-left-color: #ef4444; }
 
-    /* ==========================================================
-       COLLAPSIBLE RIGHT SIDEBAR DRAWER (SIMULATION LOG)
-       ========================================================== */
-    #campus-log-drawer-btn {
-        position: fixed;
-        right: 0;
-        top: 50%;
-        transform: translateY(-50%);
-        z-index: 999995;
-        display: none;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(180deg, #0b192c 0%, #0e7490 100%);
-        color: #ffffff;
-        border: 1px solid rgba(103, 232, 249, 0.5);
-        border-right: none;
-        border-radius: 14px 0 0 14px;
-        padding: 13px 15px;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        font-size: 13px;
-        font-weight: 800;
-        letter-spacing: 0.4px;
-        cursor: pointer;
-        box-shadow: -4px 6px 20px rgba(11, 25, 44, 0.25);
-        transition: right 0.32s cubic-bezier(0.25, 0.8, 0.25, 1), background 0.2s ease;
+    /* ---- Hero Result Card (View 2 Final Outcome) ---- */
+    .hero-result-card {
+        background: radial-gradient(circle at 88% 0%, rgba(6, 182, 212, 0.10), transparent 45%),
+                    linear-gradient(180deg, #ffffff 0%, #f8fdff 100%);
+        border: 1px solid #bae6fd;
+        border-radius: 18px;
+        padding: 20px 26px;
+        margin: 14px 0 16px 0;
+        box-shadow: 0 4px 0 #bae6fd, 0 12px 26px rgba(14, 116, 144, 0.13);
+        position: relative;
+        overflow: hidden;
     }
-    #campus-log-drawer-btn:hover {
-        background: linear-gradient(180deg, #0e4a66 0%, #06b6d4 100%);
+    .hero-result-card::after {
+        content: "";
+        position: absolute; bottom: 0; left: 0; width: 100%; height: 4px;
+        background: linear-gradient(90deg, #0d9488, #22d3ee, #0d9488);
+        background-size: 200% 100%;
+        animation: gradientMove 3.5s linear infinite;
     }
-    body.log-drawer-open #campus-log-drawer-btn {
-        right: 360px;
-    }
-
-    .right-log-drawer {
-        position: fixed;
-        top: 0;
-        right: 0;
-        width: 360px;
-        height: 100vh;
-        background: #ffffff;
-        border-left: 3px solid #0891b2;
-        box-shadow: -12px 0 36px rgba(11, 25, 44, 0.18);
-        z-index: 999990;
-        transform: translateX(100%);
-        transition: transform 0.32s cubic-bezier(0.25, 0.8, 0.25, 1);
-        display: flex;
-        flex-direction: column;
-        box-sizing: border-box;
-    }
-    body.log-drawer-open .right-log-drawer {
-        transform: translateX(0);
-    }
-    .drawer-header {
-        background: linear-gradient(95deg, #0b192c 0%, #0e4a66 100%);
-        color: #ffffff !important;
-        padding: 18px 20px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-shrink: 0;
-    }
-    .drawer-title {
-        color: #ffffff !important;
-        font-size: 16px;
-        font-weight: 800;
-        letter-spacing: 0.3px;
-    }
-    .drawer-count {
-        background: rgba(255, 255, 255, 0.16);
-        border: 1px solid rgba(186, 230, 253, 0.4);
-        color: #e0f2fe !important;
-        font-size: 11.5px;
-        font-weight: 700;
-        padding: 3px 10px;
-        border-radius: 999px;
-    }
-    .drawer-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 14px;
-        background: #f8fafc;
-        display: flex;
-        flex-direction: column;
-        gap: 9px;
-    }
-    .drawer-body::-webkit-scrollbar { width: 6px; }
-    .drawer-body::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
-
-    .log-entry {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-left: 4px solid #0891b2;
-        border-radius: 10px;
-        padding: 9px 12px;
-        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
-    }
-    .log-entry.goal { border-left-color: #16a34a; background: #f0fdf4; }
-    .log-entry.wait, .log-entry.retreat { border-left-color: #f59e0b; background: #fffbeb; }
-    .log-entry.collision { border-left-color: #dc2626; background: #fef2f2; }
-    .log-entry-top {
-        display: flex; justify-content: space-between; align-items: center;
-        margin-bottom: 3px;
-    }
-    .log-step-tag {
-        font-size: 11px; font-weight: 800; color: #0e7490;
-        text-transform: uppercase; letter-spacing: 0.4px;
-    }
-    .log-reward-pos {
-        font-size: 11px; font-weight: 800; color: #15803d;
-        background: #dcfce7; padding: 1px 8px; border-radius: 999px;
-    }
-    .log-reward-neg {
-        font-size: 11px; font-weight: 800; color: #475569;
-        background: #f1f5f9; padding: 1px 8px; border-radius: 999px;
-    }
-    .log-reward-bad {
-        font-size: 11px; font-weight: 800; color: #b91c1c;
-        background: #fee2e2; padding: 1px 8px; border-radius: 999px;
-    }
-    .log-msg {
-        font-size: 12.8px; font-weight: 600; color: #1e293b; line-height: 1.38;
-    }
-    .log-empty {
-        margin: auto; text-align: center; color: #64748b;
-        font-size: 13px; padding: 20px;
-    }
-
-    /* ==========================================================
-       CENTERED MISSION SUMMARY POPUP CARD STYLING
-       ========================================================== */
-    .modal-hero {
-        text-align: center;
-        padding: 18px 16px 14px 16px;
-        border-radius: 16px;
-        background: radial-gradient(circle at 50% 0%, rgba(6, 182, 212, 0.14), transparent 70%),
-                    linear-gradient(180deg, #f0fdfa 0%, #ffffff 100%);
-        border: 1px solid #a5f3fc;
-        margin-bottom: 14px;
-    }
-    .modal-hero.failed {
-        background: radial-gradient(circle at 50% 0%, rgba(239, 68, 68, 0.12), transparent 70%),
-                    linear-gradient(180deg, #fef2f2 0%, #ffffff 100%);
+    .hero-result-card.failed {
         border-color: #fecaca;
+        box-shadow: 0 4px 0 #fecaca, 0 12px 26px rgba(220, 38, 38, 0.11);
     }
-    .modal-status-badge {
-        display: inline-block;
-        padding: 4px 14px;
-        border-radius: 999px;
-        font-size: 11.5px;
-        font-weight: 800;
-        letter-spacing: 0.8px;
-        text-transform: uppercase;
-        margin-bottom: 8px;
-    }
-    .modal-title {
-        font-size: 24px;
-        font-weight: 900;
-        margin: 0 0 6px 0;
-        line-height: 1.2;
-    }
-    .modal-sub {
-        font-size: 13.8px;
-        color: #475569 !important;
-        margin: 0;
-    }
-    .modal-kpi-grid {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 10px;
-        margin: 14px 0 14px 0;
-    }
-    .modal-kpi {
-        background: #f8fdff;
-        border: 1px solid #dbeafe;
-        border-top: 3px solid #0891b2;
-        border-radius: 12px;
-        padding: 12px 8px;
-        text-align: center;
-    }
-    .modal-kpi-val {
-        font-size: 20px;
-        font-weight: 900;
-        color: #0f172a !important;
-        line-height: 1.2;
-    }
-    .modal-kpi-lbl {
-        font-size: 10.5px;
-        font-weight: 700;
-        color: #64748b !important;
-        text-transform: uppercase;
-        letter-spacing: 0.4px;
-        margin-top: 4px;
-    }
-    .modal-meta-row {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 8px;
-        margin-bottom: 16px;
-    }
-    .modal-meta-pill {
-        background: #f1f5f9;
-        border: 1px solid #cbd5e1;
-        border-radius: 999px;
-        padding: 4px 12px;
-        font-size: 12px;
-        font-weight: 700;
-        color: #334155 !important;
+    .hero-result-card.failed::after {
+        background: linear-gradient(90deg, #dc2626, #fb7185, #dc2626);
+        background-size: 200% 100%;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -729,6 +552,7 @@ def shortest_path_info(env, start, target, avoid_uncovered=False):
 
 
 def lerp_coord(p1, p2, t):
+    """Linearly interpolate between two (x, y) coordinates."""
     return (p1[0] + (p2[0] - p1[0]) * t, p1[1] + (p2[1] - p1[1]) * t)
 
 
@@ -766,56 +590,47 @@ def render_obstacle_pills_html(env):
     return f'<div class="obstacle-pill-grid">{"".join(pills)}</div>'
 
 
-def render_right_log_drawer_html(log_entries):
-    """Render the collapsible right-sidebar drawer containing newest-first logs."""
-    count = len(log_entries)
+def render_log_panel_html(log_entries):
+    """Render newest-first color-coded simulation log entries inside a scrollable panel."""
     if not log_entries:
-        body_html = (
+        return (
+            '<div class="log-panel-box">'
             '<div class="log-empty">Waiting for robot dispatch...<br>'
-            '<span style="font-size:11.5px;color:#94a3b8;">'
-            'Step-by-step robot actions will stream here live.</span></div>'
+            '<span style="font-size:11.5px;color:#94a3b8;">Step-by-step decisions will appear here in real time.</span>'
+            '</div></div>'
         )
-    else:
-        cards = []
-        for entry in reversed(log_entries):
-            outcome = entry["outcome"]
-            if outcome == "goal":
-                cls = "goal"
-            elif outcome in ("wait", "retreat"):
-                cls = outcome
-            elif outcome in ("ped_collision", "car_collision", "invalid"):
-                cls = "collision"
-            else:
-                cls = ""
 
-            rew = entry["reward"]
-            if rew > 0:
-                rew_cls = "log-reward-pos"
-            elif rew <= -15:
-                rew_cls = "log-reward-bad"
-            else:
-                rew_cls = "log-reward-neg"
+    cards = []
+    for entry in reversed(log_entries):
+        outcome = entry["outcome"]
+        if outcome == "goal":
+            cls = "goal"
+        elif outcome in ("wait", "retreat"):
+            cls = outcome
+        elif outcome in ("ped_collision", "car_collision", "invalid"):
+            cls = "collision"
+        else:
+            cls = ""
 
-            cards.append(
-                f'<div class="log-entry {cls}">'
-                f'  <div class="log-entry-top">'
-                f'    <span class="log-step-tag">Step {entry["step"]}</span>'
-                f'    <span class="{rew_cls}">{rew:+} pts</span>'
-                f'  </div>'
-                f'  <div class="log-msg">{html.escape(entry["text"])}</div>'
-                f'</div>'
-            )
-        body_html = "".join(cards)
+        rew = entry["reward"]
+        if rew > 0:
+            rew_cls = "log-reward-pos"
+        elif rew <= -15:
+            rew_cls = "log-reward-bad"
+        else:
+            rew_cls = "log-reward-neg"
 
-    return (
-        f'<div class="right-log-drawer">'
-        f'  <div class="drawer-header">'
-        f'    <span class="drawer-title">Simulation Log</span>'
-        f'    <span class="drawer-count">{count} steps</span>'
-        f'  </div>'
-        f'  <div class="drawer-body">{body_html}</div>'
-        f'</div>'
-    )
+        cards.append(
+            f'<div class="log-entry {cls}">'
+            f'  <div class="log-entry-top">'
+            f'    <span class="log-step-tag">Step {entry["step"]}</span>'
+            f'    <span class="{rew_cls}">{rew:+} pts</span>'
+            f'  </div>'
+            f'  <div class="log-msg">{html.escape(entry["text"])}</div>'
+            f'</div>'
+        )
+
+    return f'<div class="log-panel-box">{"".join(cards)}</div>'
 
 
 @st.cache_resource
@@ -837,7 +652,7 @@ def load_q_table(path=Q_TABLE_PATH):
 
 
 # ==========================================
-# 5. 2D CAMPUS MAP RENDERER (FULL-WIDTH + SMOOTH GLIDE)
+# 5. 2D CAMPUS MAP RENDERER (WITH SMOOTH INTERPOLATION)
 # ==========================================
 
 def _round_box(x, y, w, h, r, fc, ec, lw=1.2):
@@ -977,12 +792,12 @@ def icon_waypoint(node_id, node_name=""):
 def render_campus_map(env, visited_nodes, current_node, target_node,
                       score, step_num, status_text, show_obstacles=True,
                       prev_positions=None, robot_xy=None, obs_xy=None,
-                      extend_trail=True, figsize=(13.5, 7.6)):
+                      extend_trail=True):
 
     is_rainy = env.current_weather == 1
     bg_color = "#e0f2fe" if is_rainy else "#f8fafc"
 
-    fig, ax = plt.subplots(figsize=figsize, facecolor=bg_color)
+    fig, ax = plt.subplots(figsize=(13, 8.2), facecolor=bg_color)
     ax.set_facecolor(bg_color)
 
     draw_campus_background(ax)
@@ -1008,6 +823,7 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
         x2, y2 = env.node_coords[visited_nodes[i + 1]]
         ax.plot([x1, x2], [y1, y2], color="#06b6d4", linewidth=5, alpha=0.95, zorder=3)
 
+    # Smoothly extend cyan trail up to the gliding robot position
     if robot_xy is not None and extend_trail and visited_nodes:
         lx, ly = env.node_coords[visited_nodes[-1]]
         ax.plot([lx, robot_xy[0]], [ly, robot_xy[1]], color="#06b6d4", linewidth=5, alpha=0.95, zorder=3)
@@ -1047,11 +863,11 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
 
         ax.annotate(
             name, (x, y), xytext=(label_dx, label_dy), textcoords="offset points",
-            ha="left", va="center", fontsize=6.8, fontweight="bold",
+            ha="left", va="center", fontsize=6.5, fontweight="bold",
             color=label_color, zorder=8
         )
 
-    # Moving obstacles
+    # Moving obstacles (supports interpolated coordinates)
     if show_obstacles:
         for kind, positions, make_icon, base_dx, base_dy, arrow_color, tag in (
             ("ped", env.pedestrian_positions, icon_person, -15, -12, "#a16207", "P"),
@@ -1077,7 +893,7 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
                             bbox=dict(boxstyle="round,pad=0.15", fc="#ffffff", ec="none", alpha=0.85),
                             zorder=10)
 
-    # Robot icon
+    # Robot icon (supports smooth gliding coordinates)
     rx, ry = robot_xy if robot_xy is not None else env.node_coords[current_node]
     place_icon(ax, icon_robot(), rx, ry, 0, 9, zorder=12)
 
@@ -1163,126 +979,19 @@ def go_to_order():
     st.session_state.page = "order"
     st.session_state.sim_finished = False
     st.session_state.sim_data = None
-    st.session_state.show_result_modal = False
 
 
 def replay_order():
     st.session_state.sim_finished = False
     st.session_state.sim_data = None
-    st.session_state.show_result_modal = False
 
 
-def open_result_modal():
-    st.session_state.show_result_modal = True
-
-
-# ==========================================
-# 7. CENTERED MISSION SUMMARY POPUP MODAL
-# ==========================================
-
-def render_mission_summary_content(d, selected_model, in_dialog=True):
-    """Render the centered result summary card and action buttons."""
-    final_outcome = d["final_outcome"]
-    time_labels = ["Day", "Evening", "Night"]
-    weather_str = "Rainy" if d["current_weather"] == 1 else "Sunny"
-    tod_str = time_labels[d["current_time_of_day"]]
-    rain_status = "100% Dry" if d["rain_violations"] == 0 else f"{d['rain_violations']} Open-Air"
-
-    if final_outcome == "goal":
-        hero_cls = ""
-        badge_bg, badge_fg = "#dcfce7", "#15803d"
-        badge_txt = "DELIVERY SUCCESSFUL"
-        title_col = "#0d9488"
-        title_txt = "Order Delivered Successfully!"
-        sub_txt = (
-            f"<b>{html.escape(d['selected_food'])}</b> safely arrived at "
-            f"<b>{html.escape(env.node_names[d['target_destination']])}</b>."
-        )
-    elif final_outcome in ("ped_collision", "car_collision"):
-        kind = "pedestrian" if final_outcome == "ped_collision" else "car"
-        hero_cls = "failed"
-        badge_bg, badge_fg = "#fee2e2", "#b91c1c"
-        badge_txt = "MISSION FAILED"
-        title_col = "#dc2626"
-        title_txt = f"Collision with {kind.title()}"
-        sub_txt = (
-            f"The delivery robot collided with a {kind} at "
-            f"<b>{html.escape(env.node_names[d['current_location']])}</b>."
-        )
-    else:
-        hero_cls = "failed"
-        badge_bg, badge_fg = "#fef3c7", "#92400e"
-        badge_txt = "TIME LIMIT REACHED"
-        title_col = "#d97706"
-        title_txt = "Delivery Timed Out"
-        sub_txt = f"Reached the maximum horizon of {env.max_steps} steps before arrival."
-
-    st.markdown(f"""
-        <div class="modal-hero {hero_cls}">
-            <div class="modal-status-badge" style="background:{badge_bg};color:{badge_fg} !important;">
-                {badge_txt}
-            </div>
-            <div class="modal-title" style="color:{title_col} !important;">{title_txt}</div>
-            <p class="modal-sub">{sub_txt}</p>
-        </div>
-
-        <div class="modal-meta-row">
-            <span class="modal-meta-pill">Route: {html.escape(env.node_names[d['start_location']])} ➜ {html.escape(env.node_names[d['target_destination']])}</span>
-            <span class="modal-meta-pill">Model: {html.escape(selected_model)}</span>
-            <span class="modal-meta-pill">{weather_str} · {tod_str}</span>
-        </div>
-
-        <div class="modal-kpi-grid">
-            <div class="modal-kpi">
-                <div class="modal-kpi-val" style="color:{title_col} !important;">{d['total_score']} pts</div>
-                <div class="modal-kpi-lbl">Final Score</div>
-            </div>
-            <div class="modal-kpi">
-                <div class="modal-kpi-val">{d['step_num']}</div>
-                <div class="modal-kpi-lbl">Steps Taken</div>
-            </div>
-            <div class="modal-kpi">
-                <div class="modal-kpi-val">{d['retreat_count']}</div>
-                <div class="modal-kpi-lbl">Retreats</div>
-            </div>
-            <div class="modal-kpi">
-                <div class="modal-kpi-val">{rain_status}</div>
-                <div class="modal-kpi-lbl">Rain Safety</div>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    csv_bytes = pd.DataFrame(d["log_records"]).to_csv(index=False).encode("utf-8")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        if st.button("🔁 Replay", key=f"dlg_replay_{in_dialog}", use_container_width=True):
-            replay_order()
-            st.rerun()
-    with c2:
-        if st.button("🔄 New Order", key=f"dlg_new_{in_dialog}", use_container_width=True):
-            go_to_order()
-            st.rerun()
-    with c3:
-        st.download_button(
-            label="📥 Export CSV",
-            data=csv_bytes,
-            file_name=f"delivery_log_{selected_model.lower().replace(' ', '_')}.csv",
-            mime="text/csv",
-            key=f"dlg_csv_{in_dialog}",
-            use_container_width=True
-        )
-
-
-if hasattr(st, "dialog"):
-    @st.dialog("Mission Result Summary")
-    def show_mission_dialog(d, selected_model):
-        render_mission_summary_content(d, selected_model, in_dialog=True)
-else:
-    show_mission_dialog = None
+if "page" not in st.session_state:
+    st.session_state.page = "order"
 
 
 # ==========================================
-# 8. SMART STICKY CENTERED HEADER (NO EMOJI)
+# 7. SMART STICKY CENTERED HEADER (NO EMOJI)
 # ==========================================
 
 st.markdown("""
@@ -1301,6 +1010,7 @@ if st.session_state.page == "order":
 
     col_form, col_map = st.columns([1.05, 1.35], gap="large")
 
+    # ---- LEFT BENTO CARD: ALL 6 CONTROLS IN ONE UNIFIED BOX ----
     with col_form:
         with st.container(border=True):
             st.markdown('<div class="bento-marker"></div>', unsafe_allow_html=True)
@@ -1317,6 +1027,7 @@ if st.session_state.page == "order":
             target_options = {env.node_names[n]: n for n in env.target_destinations}
             start_options = {env.node_names[n]: n for n in env.start_locations}
 
+            # Row 1: Restaurant & Destination
             r1_c1, r1_c2 = st.columns(2)
             with r1_c1:
                 selected_start_name = st.selectbox("🏪 1. Restaurant", list(start_options.keys()))
@@ -1325,6 +1036,7 @@ if st.session_state.page == "order":
                 selected_target_name = st.selectbox("🎯 2. Destination", list(target_options.keys()))
                 chosen_target = target_options[selected_target_name]
 
+            # Row 2: Food Item & RL Model
             r2_c1, r2_c2 = st.columns(2)
             with r2_c1:
                 chosen_food = st.selectbox("🍱 3. Food Item", env.food_menus[chosen_start])
@@ -1334,6 +1046,7 @@ if st.session_state.page == "order":
                     ["Q-Learning", "SARSA", "A2C", "REINFORCE", "DQN"]
                 )
 
+            # Row 3: Weather & Time of Day
             r3_c1, r3_c2 = st.columns(2)
             with r3_c1:
                 weather_mode = st.selectbox(
@@ -1410,11 +1123,10 @@ if st.session_state.page == "order":
                 st.session_state.selected_model = selected_model
                 st.session_state.sim_finished = False
                 st.session_state.sim_data = None
-                st.session_state.show_result_modal = False
-                st.session_state.trigger_balloons = False
                 st.session_state.page = "tracking"
                 st.rerun()
 
+    # ---- RIGHT BENTO CARD: CAMPUS MAP PREVIEW ----
     with col_map:
         with st.container(border=True):
             st.markdown('<div class="bento-marker"></div>', unsafe_allow_html=True)
@@ -1439,14 +1151,14 @@ if st.session_state.page == "order":
             preview_fig = render_campus_map(
                 preview_env, [chosen_start], chosen_start, chosen_target,
                 score=0, step_num=0, status_text="Waiting for Order",
-                show_obstacles=False, figsize=(13, 8.0)
+                show_obstacles=False
             )
             st.pyplot(preview_fig, use_container_width=True)
             plt.close(preview_fig)
 
 
 # ==========================================
-# VIEW 2: FULL-WIDTH LIVE MAP + COLLAPSIBLE RIGHT LOG DRAWER
+# VIEW 2: UNIFIED LIVE TRACKING CONSOLE
 # ==========================================
 
 elif st.session_state.page == "tracking":
@@ -1459,10 +1171,7 @@ elif st.session_state.page == "tracking":
     selected_model = st.session_state.get("selected_model", "Q-Learning")
     q_table = load_q_table()
 
-    # Right Slide-Out Log Drawer placeholder (MUST sit at root level for fixed viewport positioning)
-    log_drawer_placeholder = st.empty()
-
-    # Model Status Pill
+    # Compact Model Status Pill (replaces bulky alert banner)
     if selected_model == "Q-Learning" and q_table is not None:
         model_pill_html = '<span class="status-pill-ok">Model: Q-Learning (Trained 5D Table)</span>'
     elif selected_model == "Q-Learning":
@@ -1470,8 +1179,8 @@ elif st.session_state.page == "tracking":
     else:
         model_pill_html = f'<span class="status-pill-warn">{html.escape(selected_model)} not linked — Random Fallback</span>'
 
-    # ---- 1. COMPACT MISSION TOP BAR ----
-    top_col1, top_col2, top_col3 = st.columns([3.9, 0.9, 1.0])
+    # ---- 1. COMPACT TOP BAR ----
+    top_col1, top_col2, top_col3 = st.columns([3.8, 0.9, 1.0])
     with top_col1:
         st.markdown(f"""
             <div class="section-header" style="margin:4px 0 6px 0;">
@@ -1489,22 +1198,37 @@ elif st.session_state.page == "tracking":
     with top_col3:
         st.button("🔄 New Order", on_click=go_to_order, use_container_width=True)
 
-    # ---- 2. FULL-WIDTH LIVE CAMPUS MAP BENTO CARD ----
+    # ---- 2. MAIN UNIFIED BENTO CONSOLE (MAP + SIMULATION LOG SIDE-BY-SIDE) ----
     with st.container(border=True):
         st.markdown('<div class="bento-marker"></div>', unsafe_allow_html=True)
-        st.markdown("""
-            <div class="section-header" style="margin-bottom:6px;">
-                <div class="section-header-left">
-                    <span class="dot"></span>
-                    <span class="label">Live 2D Campus Map</span>
-                </div>
-                <span class="section-chip">Click "◀ Live Log" on right edge to inspect steps</span>
-            </div>
-        """, unsafe_allow_html=True)
-        map_placeholder = st.empty()
-        intent_placeholder = st.empty()
+        col_live_map, col_live_log = st.columns([2.55, 1.05], gap="medium")
 
-    # ---- 3. LIVE SUMMARY METRICS STRIP (BELOW FULL-WIDTH MAP) ----
+        with col_live_map:
+            st.markdown("""
+                <div class="section-header" style="margin-bottom:6px;">
+                    <div class="section-header-left">
+                        <span class="dot"></span>
+                        <span class="label">Live 2D Campus Map</span>
+                    </div>
+                    <span class="section-chip">Smooth Gliding View</span>
+                </div>
+            """, unsafe_allow_html=True)
+            map_placeholder = st.empty()
+            intent_placeholder = st.empty()
+
+        with col_live_log:
+            st.markdown("""
+                <div class="section-header" style="margin-bottom:6px;">
+                    <div class="section-header-left">
+                        <span class="dot"></span>
+                        <span class="label">Simulation Log</span>
+                    </div>
+                    <span class="section-chip">Newest First</span>
+                </div>
+            """, unsafe_allow_html=True)
+            log_placeholder = st.empty()
+
+    # ---- 3. LIVE SUMMARY METRICS STRIP (CLEANLY BELOW MAP & LOG) ----
     st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
     summary_placeholder = st.empty()
 
@@ -1527,7 +1251,6 @@ elif st.session_state.page == "tracking":
             st.button("🏠 Back to Order Selection", on_click=go_to_order)
             st.stop()
 
-        start_location = env.current_location
         total_score = 0
         step_num = 0
         terminated = truncated = False
@@ -1538,7 +1261,6 @@ elif st.session_state.page == "tracking":
         retreat_count = 0
         rain_violations = 0
 
-        log_drawer_placeholder.markdown(render_right_log_drawer_html(log_entries), unsafe_allow_html=True)
         render_summary_cards(total_score, 0, step_num, env.current_weather, env.current_time_of_day,
                              len(env.pedestrian_positions) + len(env.car_positions))
         fig = render_campus_map(env, visited_nodes, env.current_location,
@@ -1546,6 +1268,7 @@ elif st.session_state.page == "tracking":
         map_placeholder.pyplot(fig, use_container_width=True)
         plt.close(fig)
         intent_placeholder.markdown(render_obstacle_pills_html(env), unsafe_allow_html=True)
+        log_placeholder.markdown(render_log_panel_html(log_entries), unsafe_allow_html=True)
         time.sleep(0.75)
 
         reward = 0
@@ -1587,6 +1310,7 @@ elif st.session_state.page == "tracking":
             else:
                 status_msg, log_line = f"Moved to {here}", f"MOVE ➜ {here}"
 
+            # Update log panel & summary cards right as the step begins
             log_entries.append({"step": step_num, "text": log_line, "reward": reward, "outcome": outcome})
             log_records.append({
                 "Step": step_num,
@@ -1601,12 +1325,11 @@ elif st.session_state.page == "tracking":
                 "Rain_Violation": info["rain_violation"],
             })
 
-            # Stream updated logs into the collapsible right drawer & refresh summary strip
-            log_drawer_placeholder.markdown(render_right_log_drawer_html(log_entries), unsafe_allow_html=True)
+            log_placeholder.markdown(render_log_panel_html(log_entries), unsafe_allow_html=True)
             render_summary_cards(total_score, reward, step_num, env.current_weather, env.current_time_of_day,
                                  len(env.pedestrian_positions) + len(env.car_positions))
 
-            # ---- SMOOTH GLIDING ANIMATION ----
+            # ---- SMOOTH GLIDING ANIMATION ACROSS INTERP_FRAMES ----
             start_xy = env.node_coords[previous_location]
             end_xy = env.node_coords[env.current_location]
             blocked_idx = info.get("blocked_node")
@@ -1615,10 +1338,12 @@ elif st.session_state.page == "tracking":
             for f in range(1, INTERP_FRAMES + 1):
                 t = f / INTERP_FRAMES
 
+                # Robot position: smooth glide on move, or forward-and-back bounce on retreat
                 if moved:
                     curr_robot_xy = lerp_coord(start_xy, end_xy, t)
                     extend_trail = True
                 elif blocked_xy is not None:
+                    # Probe 40% toward blocked node then retreat smoothly back
                     bounce_t = 0.42 * (1.0 - abs(2.0 * t - 1.0))
                     curr_robot_xy = lerp_coord(start_xy, blocked_xy, bounce_t)
                     extend_trail = False
@@ -1626,6 +1351,7 @@ elif st.session_state.page == "tracking":
                     curr_robot_xy = end_xy
                     extend_trail = False
 
+                # Obstacles glide smoothly along their edges too
                 curr_obs_xy = {
                     "ped": [
                         lerp_coord(env.node_coords[prev_positions["ped"][i]], env.node_coords[node], t)
@@ -1658,9 +1384,8 @@ elif st.session_state.page == "tracking":
             intent_placeholder.markdown(render_obstacle_pills_html(env), unsafe_allow_html=True)
             time.sleep(STEP_PAUSE)
 
-        # Save final snapshot, trigger centered popup modal on clean rerun
+        # Save snapshot so Export CSV does not replay the animation
         st.session_state.sim_data = {
-            "start_location": start_location,
             "total_score": total_score,
             "last_reward": reward,
             "step_num": step_num,
@@ -1682,12 +1407,11 @@ elif st.session_state.page == "tracking":
             "obstacle_pills_html": render_obstacle_pills_html(env),
         }
         st.session_state.sim_finished = True
-        st.session_state.show_result_modal = True
-        st.session_state.trigger_balloons = (info.get("outcome") == "goal")
-        st.rerun()
+        if info.get("outcome") == "goal":
+            st.balloons()
 
     else:
-        # ---- RESTORE FINISHED STATE ----
+        # Restore finished state cleanly on rerun (e.g., after Export CSV)
         d = st.session_state.sim_data
         env.current_location = d["current_location"]
         env.target_destination = d["target_destination"]
@@ -1697,46 +1421,84 @@ elif st.session_state.page == "tracking":
         env.pedestrian_positions = list(d["pedestrian_positions"])
         env.car_positions = list(d["car_positions"])
 
-        log_drawer_placeholder.markdown(render_right_log_drawer_html(d["log_entries"]), unsafe_allow_html=True)
         fig = render_campus_map(env, d["visited_nodes"], d["current_location"],
                                 d["target_destination"], d["total_score"],
                                 d["step_num"], d["status_msg"])
         map_placeholder.pyplot(fig, use_container_width=True)
         plt.close(fig)
         intent_placeholder.markdown(d["obstacle_pills_html"], unsafe_allow_html=True)
+        log_placeholder.markdown(render_log_panel_html(d["log_entries"]), unsafe_allow_html=True)
         render_summary_cards(d["total_score"], d["last_reward"], d["step_num"],
                              d["current_weather"], d["current_time_of_day"],
                              len(d["pedestrian_positions"]) + len(d["car_positions"]))
 
-        # Play celebratory balloons once upon successful arrival
-        if st.session_state.pop("trigger_balloons", False):
-            st.balloons()
+    # ======================================
+    # 4. HERO RESULT CARD & CSV EXPORT
+    # ======================================
+    d = st.session_state.sim_data
+    final_outcome = d["final_outcome"]
 
-        # Bottom action bar (reopen popup / export / go back anytime)
-        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-        csv_bytes = pd.DataFrame(d["log_records"]).to_csv(index=False).encode("utf-8")
-        b1, b2, b3 = st.columns(3)
-        with b1:
-            st.button("📊 Show Result Summary Popup", on_click=open_result_modal, use_container_width=True)
-        with b2:
-            st.button("🏠 Back to Order Selection", on_click=go_to_order, use_container_width=True)
-        with b3:
-            st.download_button(
-                label="📥 Export Delivery Log (CSV)",
-                data=csv_bytes,
-                file_name=f"delivery_log_{selected_model.lower().replace(' ', '_')}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
+    if final_outcome == "goal":
+        hero_cls = ""
+        hero_title = "Delivery Completed Successfully"
+        hero_sub = (
+            f"Delivered <b>{html.escape(d['selected_food'])}</b> to "
+            f"<b>{html.escape(env.node_names[d['target_destination']])}</b> "
+            f"using <b>{html.escape(selected_model)}</b>."
+        )
+        accent_col = "#0d9488"
+    elif final_outcome in ("ped_collision", "car_collision"):
+        kind = "pedestrian" if final_outcome == "ped_collision" else "car"
+        hero_cls = "failed"
+        hero_title = f"Delivery Failed — {kind.title()} Collision"
+        hero_sub = f"Robot collided with a {kind} at <b>{html.escape(env.node_names[d['current_location']])}</b>."
+        accent_col = "#dc2626"
+    else:
+        hero_cls = "failed"
+        hero_title = "Time Limit Reached"
+        hero_sub = f"Simulation ended after reaching the {env.max_steps}-step horizon."
+        accent_col = "#d97706"
 
-        # Trigger centered popup automatically once delivery finishes
-        if st.session_state.get("show_result_modal", False):
-            st.session_state.show_result_modal = False
-            if show_mission_dialog is not None:
-                show_mission_dialog(d, selected_model)
-            else:
-                # Fallback for older Streamlit versions without st.dialog
-                st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
-                with st.container(border=True):
-                    st.markdown('<div class="bento-marker"></div>', unsafe_allow_html=True)
-                    render_mission_summary_content(d, selected_model, in_dialog=False)
+    rain_status = "100% Dry" if d["rain_violations"] == 0 else f"{d['rain_violations']} Open-Air"
+
+    st.markdown(f"""
+    <div class="hero-result-card {hero_cls}">
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:18px;">
+            <div>
+                <div style="color:{accent_col}; font-size:21px; font-weight:900; margin-bottom:4px;">{hero_title}</div>
+                <div style="color:#475569; font-size:14px;">{hero_sub}</div>
+            </div>
+            <div style="display:flex; gap:26px; flex-wrap:wrap;">
+                <div style="text-align:center;">
+                    <div style="color:{accent_col}; font-size:23px; font-weight:900;">{d['total_score']} pts</div>
+                    <div style="color:#64748b; font-size:10.5px; font-weight:700; letter-spacing:0.5px;">FINAL SCORE</div>
+                </div>
+                <div style="text-align:center;">
+                    <div style="color:{accent_col}; font-size:23px; font-weight:900;">{d['step_num']}</div>
+                    <div style="color:#64748b; font-size:10.5px; font-weight:700; letter-spacing:0.5px;">STEPS</div>
+                </div>
+                <div style="text-align:center;">
+                    <div style="color:{accent_col}; font-size:23px; font-weight:900;">{d['retreat_count']}</div>
+                    <div style="color:#64748b; font-size:10.5px; font-weight:700; letter-spacing:0.5px;">RETREATS</div>
+                </div>
+                <div style="text-align:center;">
+                    <div style="color:{accent_col}; font-size:23px; font-weight:900;">{rain_status}</div>
+                    <div style="color:#64748b; font-size:10.5px; font-weight:700; letter-spacing:0.5px;">RAIN SAFETY</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    csv_bytes = pd.DataFrame(d["log_records"]).to_csv(index=False).encode("utf-8")
+    btn_c1, btn_c2 = st.columns(2)
+    with btn_c1:
+        st.button("🏠 Back to Order Selection", on_click=go_to_order, use_container_width=True)
+    with btn_c2:
+        st.download_button(
+            label="📥 Export Delivery Log (CSV)",
+            data=csv_bytes,
+            file_name=f"delivery_log_{selected_model.lower().replace(' ', '_')}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
