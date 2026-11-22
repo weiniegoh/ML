@@ -1172,173 +1172,15 @@ elif st.session_state.page == "tracking":
     q_table = load_q_table()
 
     # ==========================================
-    # VIEW 2 SETTINGS (edit these to taste)
+    # SUCCESS POP-UP (centered dialog): "Delivery Successful!" + final score,
+    # and a "View Summary" button that opens the details.
+    # Needs Streamlit >= 1.37 (st.dialog) or 1.34-1.36 (st.experimental_dialog); otherwise it is skipped.
     # ==========================================
-    VIEW2_MAX_WIDTH = "1760px"        # page width in this view (global default is 1440px)
-    LOG_DRAWER_WIDTH = "400px"        # width of the slide-out Simulation Log
-    POPUP_ON_SUCCESS = True           # centered "Delivery Successful" pop-up when the order is delivered
-    POPUP_ON_FAILURE = False          # also pop up automatically on collision / time limit?
-
-    # ==========================================
-    # VIEW 2 STYLES: wide map + slide-out log (the map makes room when the log is open)
-    # (kept inside View 2 so you can paste this block on its own)
-    # ==========================================
-    LOG_W = f"min({LOG_DRAWER_WIDTH}, 92vw)"         # real drawer width (never wider than 92% of the screen)
-
-    st.markdown("""
-    <style>
-        /* ---- Wider page so the map can use the full screen width ---- */
-        .block-container { max-width: __VIEW2_MAX_WIDTH__ !important; }
-
-        /* ---- Hidden data feed: Python writes the log here, JavaScript copies it into the drawer ---- */
-        .log-source { display: none !important; }
-
-        /* ---- When the log is open the page content makes room (padding), so the map SHRINKS
-               instead of being covered, and grows back to full size when the log is closed ---- */
-        [data-testid="stMain"], section.main {
-            transition: padding-right 0.32s cubic-bezier(0.3, 0, 0.2, 1);
-        }
-        body.log-open [data-testid="stMain"], body.log-open section.main {
-            padding-right: calc(__LOG_W__ + 40px) !important;
-        }
-
-        /* ---- Slide-out Simulation Log (created by JavaScript, fixed to the right edge) ---- */
-        #campusLogDrawer {
-            position: fixed; top: 60px; bottom: 0; right: 0;
-            width: __LOG_W__; box-sizing: border-box;
-            z-index: 10001;
-            display: flex; flex-direction: column;
-            padding: 12px 12px 12px 14px;
-            background: #ffffff;
-            border-left: 1px solid #bae6fd;
-            box-shadow: -10px 0 30px rgba(15, 23, 42, 0.14);
-            transform: translateX(105%);
-            transition: transform 0.32s cubic-bezier(0.3, 0, 0.2, 1);
-        }
-        body.log-open #campusLogDrawer { transform: translateX(0); }
-        #campusLogDrawer .log-drawer-head {
-            display: flex; align-items: center; justify-content: space-between;
-            margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #e2e8f0;
-        }
-        #campusLogDrawer .log-drawer-title { font-size: 15px; font-weight: 800; color: #0e7490; }
-        #campusLogDrawer .log-drawer-count {
-            margin-left: 8px; font-size: 11px; font-weight: 700; color: #0e7490;
-            background: #e0f2fe; padding: 2px 9px; border-radius: 999px;
-        }
-        #campusLogDrawer .log-drawer-sub { font-size: 11px; color: #64748b; margin-left: 8px; }
-        #campusLogDrawer .log-drawer-close {
-            cursor: pointer; font-size: 15px; font-weight: 800; color: #475569;
-            width: 28px; height: 28px; line-height: 28px; text-align: center;
-            border-radius: 8px; background: #f1f5f9; user-select: none;
-        }
-        #campusLogDrawer .log-drawer-close:hover { background: #fee2e2; color: #b91c1c; }
-        #campusLogBody { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-        /* the old fixed 545px log box now fills the drawer instead */
-        #campusLogBody .log-panel-box { height: 100% !important; box-sizing: border-box; }
-
-        /* ---- Tab button on the right edge: click to open / close the log ---- */
-        #campusLogToggle {
-            position: fixed; right: 0; top: 50%; transform: translateY(-50%);
-            z-index: 10002; cursor: pointer; border: none;
-            writing-mode: vertical-rl; letter-spacing: 0.6px;
-            padding: 16px 9px; border-radius: 14px 0 0 14px;
-            font-size: 13px; font-weight: 800; color: #ffffff;
-            background: linear-gradient(180deg, #0891b2 0%, #0e7490 100%);
-            box-shadow: -4px 4px 16px rgba(14, 116, 144, 0.35);
-            transition: right 0.32s cubic-bezier(0.3, 0, 0.2, 1), filter 0.15s ease;
-        }
-        #campusLogToggle:hover { filter: brightness(1.12); }
-        body.log-open #campusLogToggle { right: __LOG_W__; }
-    </style>
-    """.replace("__VIEW2_MAX_WIDTH__", VIEW2_MAX_WIDTH).replace("__LOG_W__", LOG_W),
-        unsafe_allow_html=True)
-
-    # JavaScript (runs once per browser tab). It builds the right-edge tab + the drawer directly under <body>,
-    # copies the log from the hidden .log-source element every 0.25 s, and only flips a class on <body>
-    # when you click, so opening/closing the log NEVER reruns the Python simulation.
-    log_drawer_js = """
-    <script>
-    const parentWin = window.parent;
-    const doc = window.parent.document;
-
-    if (!parentWin._campusLogDrawerV2) {
-        parentWin._campusLogDrawerV2 = true;
-
-        // remove leftovers of an older version, if any
-        ['campusLogToggle', 'campusLogDrawer'].forEach(function (id) {
-            const old = doc.getElementById(id);
-            if (old) { old.remove(); }
-        });
-
-        const toggleBtn = doc.createElement('button');
-        toggleBtn.id = 'campusLogToggle';
-        toggleBtn.type = 'button';
-        toggleBtn.title = 'Show / hide the simulation log';
-        toggleBtn.textContent = '\\uD83D\\uDCCB Simulation Log';
-        toggleBtn.style.display = 'none';
-
-        const drawer = doc.createElement('div');
-        drawer.id = 'campusLogDrawer';
-        drawer.innerHTML =
-            '<div class="log-drawer-head">' +
-              '<div><span class="log-drawer-title">\\uD83D\\uDCCB Simulation Log</span>' +
-              '<span class="log-drawer-count" id="campusLogCount">0 steps</span>' +
-              '<span class="log-drawer-sub">newest first</span></div>' +
-              '<span class="log-drawer-close" id="campusLogClose" role="button" title="Close">\\u2715</span>' +
-            '</div>' +
-            '<div id="campusLogBody"></div>';
-
-        doc.body.appendChild(drawer);
-        doc.body.appendChild(toggleBtn);
-
-        toggleBtn.addEventListener('click', function () { doc.body.classList.toggle('log-open'); });
-        doc.getElementById('campusLogClose').addEventListener('click', function () {
-            doc.body.classList.remove('log-open');
-        });
-        doc.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape') { doc.body.classList.remove('log-open'); }
-        });
-
-        let lastHtml = null;
-        setInterval(function () {
-            const src = doc.querySelector('.log-source');
-            if (!src) {                               // not on View 2 -> hide the tab and close the drawer
-                toggleBtn.style.display = 'none';
-                doc.body.classList.remove('log-open');
-                lastHtml = null;
-                return;
-            }
-            toggleBtn.style.display = 'block';
-            const html = src.innerHTML;
-            if (html !== lastHtml) {                  // copy only when the log changed
-                doc.getElementById('campusLogBody').innerHTML = html;
-                const n = src.querySelectorAll('.log-entry').length;
-                doc.getElementById('campusLogCount').textContent = n + (n === 1 ? ' step' : ' steps');
-                lastHtml = html;
-            }
-        }, 250);
-    }
-    </script>
-    """
-    components.html(log_drawer_js, height=0, width=0)
-
-    def render_log_drawer_html(log_entries):
-        """The log is written into a hidden element; the JavaScript above shows it inside the drawer."""
-        return f'<div class="log-source">{render_log_panel_html(log_entries)}</div>'
-
-    # ==========================================
-    # RESULT POP-UP (centered modal dialog)
-    # Short pop-up: "Delivery Successful!" + final score, and a "View Summary" button that opens the details.
-    # Uses st.dialog (Streamlit >= 1.37) or st.experimental_dialog (1.34-1.36). If neither exists,
-    # the pop-up is skipped and the result card below the map is still shown.
-    # ==========================================
+    POPUP_ON_SUCCESS = True
     _dialog_decorator = getattr(st, "dialog", None) or getattr(st, "experimental_dialog", None)
 
-    def request_result_popup():
-        st.session_state.show_result_popup = True
-
     def build_banner_html(d):
-        """Pop-up banner: status icon, title and the final score. Nothing else."""
+        """Pop-up banner: icon, title and the final score only."""
         outcome = d["final_outcome"]
         if outcome == "goal":
             icon, title, accent, bg = "🎉", "Delivery Successful!", "#0d9488", "#f0fdfa"
@@ -1357,8 +1199,8 @@ elif st.session_state.page == "tracking":
         )
 
     def build_details_html(d, model_name):
-        """Summary details shown after pressing "View Summary": 4 key numbers + mission table."""
-        accent = "#0d9488" if d["final_outcome"] == "goal" else ("#d97706" if d["final_outcome"] not in ("ped_collision", "car_collision") else "#dc2626")
+        """Details shown after pressing "View Summary": 4 key numbers + mission table."""
+        accent = "#0d9488"
         waits = sum(1 for r in d["log_records"] if r["Outcome"] == "wait")
         rain_txt = "100% Dry" if d["rain_violations"] == 0 else f"{d['rain_violations']} Open-Air"
         time_labels = ["Day", "Evening", "Night"]
@@ -1405,7 +1247,7 @@ elif st.session_state.page == "tracking":
         @_dialog_decorator("Delivery Result")
         def show_result_dialog(d, model_name):
             st.markdown(build_banner_html(d), unsafe_allow_html=True)
-            with st.expander("📊 View Summary"):          # click to open / close (no rerun needed)
+            with st.expander("📊 View Summary"):          # click to open / close (no rerun)
                 st.markdown(build_details_html(d, model_name), unsafe_allow_html=True)
                 dlg_c1, dlg_c2 = st.columns(2)
                 with dlg_c1:
@@ -1444,29 +1286,37 @@ elif st.session_state.page == "tracking":
     with top_col3:
         st.button("🔄 New Order", on_click=go_to_order, use_container_width=True)
 
-    # The Simulation Log lives in a slide-out drawer on the right edge (fixed position, so it sits
-    # OUTSIDE the map card: the card has a hover transform that would break position:fixed inside it).
-    log_placeholder = st.empty()
-
-    # ---- 2. FULL-WIDTH MAP CONSOLE ----
+    # ---- 2. MAIN UNIFIED BENTO CONSOLE (MAP + SIMULATION LOG SIDE-BY-SIDE) ----
     with st.container(border=True):
         st.markdown('<div class="bento-marker"></div>', unsafe_allow_html=True)
-        st.markdown("""
-            <div class="section-header" style="margin-bottom:6px;">
-                <div class="section-header-left">
-                    <span class="dot"></span>
-                    <span class="label">Live 2D Campus Map</span>
-                </div>
-                <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                    <span class="section-chip">Smooth Gliding View</span>
-                    <span class="section-chip">📋 Log tab on the right edge ▸</span>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        map_placeholder = st.empty()
-        intent_placeholder = st.empty()
+        col_live_map, col_live_log = st.columns([2.55, 1.05], gap="medium")
 
-    # ---- 3. LIVE SUMMARY METRICS STRIP (CLEANLY BELOW THE MAP) ----
+        with col_live_map:
+            st.markdown("""
+                <div class="section-header" style="margin-bottom:6px;">
+                    <div class="section-header-left">
+                        <span class="dot"></span>
+                        <span class="label">Live 2D Campus Map</span>
+                    </div>
+                    <span class="section-chip">Smooth Gliding View</span>
+                </div>
+            """, unsafe_allow_html=True)
+            map_placeholder = st.empty()
+            intent_placeholder = st.empty()
+
+        with col_live_log:
+            st.markdown("""
+                <div class="section-header" style="margin-bottom:6px;">
+                    <div class="section-header-left">
+                        <span class="dot"></span>
+                        <span class="label">Simulation Log</span>
+                    </div>
+                    <span class="section-chip">Newest First</span>
+                </div>
+            """, unsafe_allow_html=True)
+            log_placeholder = st.empty()
+
+    # ---- 3. LIVE SUMMARY METRICS STRIP (CLEANLY BELOW MAP & LOG) ----
     st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
     summary_placeholder = st.empty()
 
@@ -1506,7 +1356,7 @@ elif st.session_state.page == "tracking":
         map_placeholder.pyplot(fig, use_container_width=True)
         plt.close(fig)
         intent_placeholder.markdown(render_obstacle_pills_html(env), unsafe_allow_html=True)
-        log_placeholder.markdown(render_log_drawer_html(log_entries), unsafe_allow_html=True)
+        log_placeholder.markdown(render_log_panel_html(log_entries), unsafe_allow_html=True)
         time.sleep(0.75)
 
         reward = 0
@@ -1548,7 +1398,7 @@ elif st.session_state.page == "tracking":
             else:
                 status_msg, log_line = f"Moved to {here}", f"MOVE ➜ {here}"
 
-            # Update log drawer & summary cards right as the step begins
+            # Update log panel & summary cards right as the step begins
             log_entries.append({"step": step_num, "text": log_line, "reward": reward, "outcome": outcome})
             log_records.append({
                 "Step": step_num,
@@ -1563,7 +1413,7 @@ elif st.session_state.page == "tracking":
                 "Rain_Violation": info["rain_violation"],
             })
 
-            log_placeholder.markdown(render_log_drawer_html(log_entries), unsafe_allow_html=True)
+            log_placeholder.markdown(render_log_panel_html(log_entries), unsafe_allow_html=True)
             render_summary_cards(total_score, reward, step_num, env.current_weather, env.current_time_of_day,
                                  len(env.pedestrian_positions) + len(env.car_positions))
 
@@ -1648,9 +1498,7 @@ elif st.session_state.page == "tracking":
         if info.get("outcome") == "goal":
             st.balloons()
             if POPUP_ON_SUCCESS:
-                st.session_state.show_result_popup = True       # open the pop-up once, at the end of this run
-        elif POPUP_ON_FAILURE:
-            st.session_state.show_result_popup = True
+                st.session_state.show_result_popup = True   # open the pop-up once, after this run finishes
 
     else:
         # Restore finished state cleanly on rerun (e.g., after Export CSV)
@@ -1669,7 +1517,7 @@ elif st.session_state.page == "tracking":
         map_placeholder.pyplot(fig, use_container_width=True)
         plt.close(fig)
         intent_placeholder.markdown(d["obstacle_pills_html"], unsafe_allow_html=True)
-        log_placeholder.markdown(render_log_drawer_html(d["log_entries"]), unsafe_allow_html=True)
+        log_placeholder.markdown(render_log_panel_html(d["log_entries"]), unsafe_allow_html=True)
         render_summary_cards(d["total_score"], d["last_reward"], d["step_num"],
                              d["current_weather"], d["current_time_of_day"],
                              len(d["pedestrian_positions"]) + len(d["car_positions"]))
@@ -1733,15 +1581,10 @@ elif st.session_state.page == "tracking":
     """, unsafe_allow_html=True)
 
     csv_bytes = pd.DataFrame(d["log_records"]).to_csv(index=False).encode("utf-8")
-    if show_result_dialog is not None:
-        btn_c1, btn_c2, btn_c3 = st.columns(3)
-        with btn_c2:
-            st.button("🏆 View Result Summary", on_click=request_result_popup, use_container_width=True)
-    else:
-        btn_c1, btn_c3 = st.columns(2)
+    btn_c1, btn_c2 = st.columns(2)
     with btn_c1:
         st.button("🏠 Back to Order Selection", on_click=go_to_order, use_container_width=True)
-    with btn_c3:
+    with btn_c2:
         st.download_button(
             label="📥 Export Delivery Log (CSV)",
             data=csv_bytes,
@@ -1750,6 +1593,6 @@ elif st.session_state.page == "tracking":
             use_container_width=True
         )
 
-    # ---- Open the centered result pop-up (only once per finished delivery, or when the button above is pressed) ----
+    # ---- Open the centered success pop-up (only once, right after the delivery finishes) ----
     if st.session_state.pop("show_result_popup", False) and show_result_dialog is not None:
         show_result_dialog(d, selected_model)
