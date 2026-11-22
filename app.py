@@ -1034,7 +1034,6 @@ if st.session_state.page == "order":
                         <span class="dot"></span>
                         <span class="label">Order & Simulation Setup</span>
                     </div>
-                    <span class="section-chip">All-in-One Control</span>
                 </div>
             """, unsafe_allow_html=True)
 
@@ -1260,7 +1259,6 @@ elif st.session_state.page == "tracking":
                         <span class="dot"></span>
                         <span class="label">Live 2D Campus Map</span>
                     </div>
-                    <span class="section-chip">Smooth Gliding View</span>
                 </div>
             """, unsafe_allow_html=True)
             map_placeholder = st.empty()
@@ -1273,7 +1271,6 @@ elif st.session_state.page == "tracking":
                         <span class="dot"></span>
                         <span class="label">Simulation Log</span>
                     </div>
-                    <span class="section-chip">Newest First</span>
                 </div>
             """, unsafe_allow_html=True)
             log_placeholder = st.empty()
