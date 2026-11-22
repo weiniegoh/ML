@@ -148,7 +148,7 @@ st.markdown("""
 
     .campus-header {
         width: 100%;
-        padding: 22px 32px;
+        padding: 30px 32px;
         margin-bottom: 12px;
         border-radius: 18px;
         position: relative;
@@ -1090,24 +1090,6 @@ if st.session_state.page == "order":
                 est_steps_str = f"~{est_hops + 1} – {est_hops + 4} steps"
 
             st.markdown(f"""
-                <div class="snapshot-grid">
-                    <div class="snapshot-item">
-                        <div class="snap-label">Selected Route</div>
-                        <div class="snap-val">{html.escape(selected_start_name)} ➜ {html.escape(selected_target_name)}</div>
-                    </div>
-                    <div class="snapshot-item">
-                        <div class="snap-label">Order & Agent</div>
-                        <div class="snap-val">{html.escape(chosen_food)} · {html.escape(selected_model)}</div>
-                    </div>
-                    <div class="snapshot-item">
-                        <div class="snap-label">Min Graph Distance</div>
-                        <div class="snap-val">{est_hops} hops {"(Sheltered)" if is_preview_rain else "(Direct)"}</div>
-                    </div>
-                    <div class="snapshot-item">
-                        <div class="snap-label">Pre-Dispatch Estimate</div>
-                        <div class="snap-val">{est_steps_str}</div>
-                    </div>
-                </div>
                 <div class="advisor-strip">
                     <b>Dispatch Advisor:</b>
                     {"Rainy mode active — robot prioritises covered walkways (-40 open-air penalty)." if is_preview_rain else "Standard routing active — optimising shortest safe path across campus."}
