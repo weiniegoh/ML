@@ -1313,7 +1313,7 @@ elif st.session_state.page == "tracking":
         log_records = []
         retreat_count = 0
         rain_violations = 0
-	consecutive_waits = 0
+        consecutive_waits = 0
 
         render_summary_cards(total_score, 0, step_num, env.current_weather, env.current_time_of_day,
                              len(env.pedestrian_positions) + len(env.car_positions))
