@@ -970,22 +970,28 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
 # 6. ACTION POLICY & NAVIGATION CALLBACKS
 # ==========================================
 
-def choose_action(env, state, model_name, policy_table, previous_node):
-    """Use the loaded 5D table for any linked tabular RL model; random fallback otherwise."""
+def choose_action(env, state, model_name, policy_table, previous_node,
+                  consecutive_waits=0, max_consecutive_waits=3):
+    """Use the loaded 5D table; block pointless WAIT on clear roads or long wait loops."""
     valid = env.valid_actions()
 
     if policy_table is not None:
-        candidates = valid
+        candidates = list(valid)
+
+        if 36 in candidates and len(candidates) > 1:
+            if state[4] == 0 or consecutive_waits >= max_consecutive_waits:
+                candidates.remove(36)
+
         if USE_ANTI_BACKTRACKING and previous_node is not None:
-            filtered = [a for a in valid if a != previous_node]
+            filtered = [a for a in candidates if a != previous_node]
             if filtered:
                 candidates = filtered
+
         values = policy_table[state][candidates]
         best = np.flatnonzero(values == values.max())
         return int(candidates[int(random.choice(best.tolist()))])
 
     return random.choice(valid)
-
 
 def go_to_order():
     st.session_state.page = "order"
@@ -1307,6 +1313,7 @@ elif st.session_state.page == "tracking":
         log_records = []
         retreat_count = 0
         rain_violations = 0
+	consecutive_waits = 0
 
         render_summary_cards(total_score, 0, step_num, env.current_weather, env.current_time_of_day,
                              len(env.pedestrian_positions) + len(env.car_positions))
@@ -1323,7 +1330,10 @@ elif st.session_state.page == "tracking":
 
         while not (terminated or truncated):
             step_num += 1
-            action = choose_action(env, state, selected_model, policy_table, previous_node)
+            action = choose_action(                        
+                env, state, selected_model, policy_table, previous_node,
+                consecutive_waits=consecutive_waits, max_consecutive_waits=3
+            )
             previous_location = env.current_location
             prev_positions = {"ped": list(env.pedestrian_positions), "car": list(env.car_positions)}
 
@@ -1331,6 +1341,7 @@ elif st.session_state.page == "tracking":
             total_score += reward
 
             outcome = info.get("outcome")
+            consecutive_waits = (consecutive_waits + 1) if outcome == "wait" else 0   
             if info.get("retreated"):
                 retreat_count += 1
             if info.get("rain_violation"):
