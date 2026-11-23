@@ -9,7 +9,8 @@ class CampusDeliveryEnv(gym.Env):
     metadata = {"render_modes": []}
 
     def __init__(self, max_steps=80, obstacle_mode="random", contact_mode="retreat",
-                 allow_wait=True, stay_prob=0.2, retreat_penalty=-3):
+                 allow_wait=True, stay_prob=0.2, retreat_penalty=-3,
+                 allow_sidestep=True, sidestep_penalty=-2, sidestep_fail_prob=0.15):
         super().__init__()
         if obstacle_mode not in ("random", "mixed", "routes"):
             raise ValueError("obstacle_mode must be 'random', 'mixed' or 'routes'.")
@@ -23,6 +24,8 @@ class CampusDeliveryEnv(gym.Env):
             raise ValueError("retreat_penalty must be numeric.")
         if not isinstance(allow_wait, bool):
             raise ValueError("allow_wait must be True or False.")
+        if not isinstance(allow_sidestep, bool):
+            raise ValueError("allow_sidestep must be True or False.")
 
         self.max_steps = max_steps
         self.obstacle_mode = obstacle_mode
@@ -30,9 +33,14 @@ class CampusDeliveryEnv(gym.Env):
         self.allow_wait = allow_wait
         self.stay_prob = float(stay_prob)
         self.retreat_penalty = retreat_penalty
+        self.allow_sidestep = allow_sidestep
+        self.sidestep_penalty = sidestep_penalty
+        self.sidestep_fail_prob = float(sidestep_fail_prob)
+        self._side_rng = np.random.default_rng(0)
 
         self.steps = 0
         self._episode_over = False
+        self.wait_streak = 0
         self.all_nodes = list(range(36))
         self.node_names = {
             0: "Red Bricks", 1: "DK4", 2: "Rimba", 3: "Block C", 4: "Yum Yum",
@@ -112,14 +120,15 @@ class CampusDeliveryEnv(gym.Env):
             frozenset({1, 10}): -2, frozenset({7, 8}): -2,
             frozenset({14, 15}): -2, frozenset({30, 35}): -2
         }
-        self.action_space = spaces.Discrete(37)
+        self.action_space = spaces.Discrete(38)
         self.observation_mode = "tabular"
         self.observation_space = spaces.Tuple((
             spaces.Discrete(36),  # Current location
             spaces.Discrete(36),  # Destination
             spaces.Discrete(2),   # Weather
             spaces.Discrete(3),   # Time of day
-            spaces.Discrete(3)    # Traffic
+            spaces.Discrete(3),   # Traffic
+            spaces.Discrete(6)    # Wait streak (0 to 5+)
         ))
         self.current_location = None
         self.target_destination = None
@@ -127,6 +136,7 @@ class CampusDeliveryEnv(gym.Env):
         self.current_time_of_day = None
         self.current_traffic = None
         self.selected_food = None
+        self.wait_streak = 0
 
     # ------------------------------------------------------------
     # Helpers
@@ -136,7 +146,7 @@ class CampusDeliveryEnv(gym.Env):
         return seq[int(self.np_random.integers(len(seq)))]
 
     def valid_actions(self, location=None):
-        """Action masking: only allow physically connected roads (+ Wait)."""
+        """Action masking: only allow physically connected roads (+ Wait + Sidestep)."""
         loc = self.current_location if location is None else location
 
         if loc is None or loc not in self.graph:
@@ -145,8 +155,26 @@ class CampusDeliveryEnv(gym.Env):
         actions = list(self.graph[loc])
         if self.allow_wait:
             actions.append(36)
+        if self.allow_sidestep and self.current_traffic != 0:
+            actions.append(37)
 
         return actions
+
+    def planned_next_node(self):
+        dist = {n: float("inf") for n in self.all_nodes}
+        dist[self.target_destination] = 0
+        pq = [(0, self.target_destination)]
+        while pq:
+            d, u = heapq.heappop(pq)
+            if d > dist[u]:
+                continue
+            for v in self.graph[u]:
+                nd = d + self.edge_cost(v, u)
+                if nd < dist[v]:
+                    dist[v] = nd
+                    heapq.heappush(pq, (nd, v))
+        loc = self.current_location
+        return min(self.graph[loc], key=lambda n: self.edge_cost(loc, n) + dist[n])
 
     def obstacle_counts(self):
         """Return the number of pedestrians and cars for each time period."""
@@ -253,7 +281,8 @@ class CampusDeliveryEnv(gym.Env):
                 spaces.Discrete(36),
                 spaces.Discrete(2),
                 spaces.Discrete(3),
-                spaces.Discrete(3)
+                spaces.Discrete(3),
+                spaces.Discrete(6)
             ))
         else:
             # 3 pedestrian slots + 2 car slots; value 36 denotes an inactive slot
@@ -291,7 +320,8 @@ class CampusDeliveryEnv(gym.Env):
             int(self.target_destination),
             int(self.current_weather),
             int(self.current_time_of_day),
-            int(traffic)
+            int(traffic),
+            int(min(self.wait_streak, 5))
         )
 
     def _get_full_obs(self):
@@ -738,6 +768,9 @@ class CampusDeliveryEnv(gym.Env):
         self._reset_route_state()
 
         # Update traffic and return the initial observation
+        self.wait_streak = 0
+        self._side_rng = np.random.default_rng(int(self.np_random.integers(2**31 - 1)))
+
         self.current_traffic = self._get_tabular_obs()[4]
 
         state = self._get_obs()
@@ -765,6 +798,8 @@ class CampusDeliveryEnv(gym.Env):
         rain_violation = False
         blocked_node = None
         retreated = False
+        sidestepped = False
+        sidestep_failed = False
         contact = None  # obstacle standing on the node the robot moves into
 
         self.steps += 1
@@ -777,8 +812,29 @@ class CampusDeliveryEnv(gym.Env):
 
         # Robot action
         if action == 36 and self.allow_wait:
-            reward = -2
+            self.wait_streak += 1
+            reward = -2 * self.wait_streak
             outcome = "wait"
+
+        elif action == 37 and self.allow_sidestep and prev_traffic != 0:
+            n = self.planned_next_node()
+            failed = self._side_rng.random() < self.sidestep_fail_prob
+            edge = frozenset({self.current_location, n})
+            reward += self.longer_paths.get(edge, -1) + self.visibility_penalty() + self.sidestep_penalty
+            if self.current_weather == 1 and edge in self.uncovered_paths:
+                reward -= 40
+                rain_violation = True
+            if failed:
+                sidestep_failed = True
+                if n in self.pedestrian_positions:
+                    contact = "ped"
+                elif n in self.car_positions:
+                    contact = "car"
+                outcome = "move"
+            else:
+                sidestepped = True
+                outcome = "sidestep"
+            self.current_location = n
 
         elif action not in self.valid_actions():
             reward = -5
@@ -813,7 +869,7 @@ class CampusDeliveryEnv(gym.Env):
             self.current_location = action
 
         # Delivery completes immediately upon safely entering an unoccupied destination
-        if outcome == "move" and contact is None and self.current_location == self.target_destination:
+        if outcome in ("move", "sidestep") and contact is None and self.current_location == self.target_destination:
             reward += 100
             terminated = True
             outcome = "goal"
@@ -822,8 +878,8 @@ class CampusDeliveryEnv(gym.Env):
         self._move_obstacles()
 
         # Collisions only happen if delivery is still ongoing and the robot did NOT
-        # safely pull over via WAIT (36) or defensive RETREAT
-        if not terminated and outcome not in ("wait", "retreat"):
+        # safely pull over via WAIT (36), defensive RETREAT, or successful SIDESTEP
+        if not terminated and outcome not in ("wait", "retreat", "sidestep"):
             hit_ped = (self.current_location in self.pedestrian_positions) or (contact == "ped")
             hit_car = (self.current_location in self.car_positions) or (contact == "car")
 
@@ -858,6 +914,9 @@ class CampusDeliveryEnv(gym.Env):
                     terminated = True
                     outcome = "ped_collision"
 
+        if self.current_location != previous_location:
+            self.wait_streak = 0
+
         self.current_traffic = self._get_tabular_obs()[4]
 
         if not terminated and self.steps >= self.max_steps:
@@ -871,6 +930,8 @@ class CampusDeliveryEnv(gym.Env):
         info["previous_location"] = previous_location
         info["current_location"] = self.current_location
         info["robot_moved"] = self.current_location != previous_location
+        info["sidestepped"] = sidestepped
+        info["sidestep_failed"] = sidestep_failed
 
         return self._get_obs(), reward, terminated, truncated, info
 
@@ -884,7 +945,7 @@ NUM_TEST_EPISODES = 1000
 
 
 def evaluate_agent(env, table=None, num_episodes=NUM_TEST_EPISODES, base_seed=TEST_SEED):
-    """Evaluate a Q-table (shape (36, 36, 2, 3, 3, 37)) or, if table=None, a random
+    """Evaluate a Q-table (shape (36, 36, 2, 3, 3, 6, 38)) or, if table=None, a random
     valid-action baseline. The same seeds give every agent the same orders,
     weather and obstacle movement."""
     if num_episodes <= 0:
@@ -892,8 +953,8 @@ def evaluate_agent(env, table=None, num_episodes=NUM_TEST_EPISODES, base_seed=TE
     if table is not None:
         env.set_observation_mode("tabular")
         table = np.asarray(table)
-        if table.shape != (36, 36, 2, 3, 3, 37):
-            raise ValueError(f"Q-table must have shape (36, 36, 2, 3, 3, 37), got {table.shape}.")
+        if table.shape != (36, 36, 2, 3, 3, 6, 38):
+            raise ValueError(f"Q-table must have shape (36, 36, 2, 3, 3, 6, 38), got {table.shape}.")
 
     rng = random.Random(base_seed)
     success = ped_crashes = car_crashes = timeouts = 0
