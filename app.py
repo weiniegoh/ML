@@ -436,8 +436,10 @@ st.markdown("""
         transform: translateX(2px);
         box-shadow: 0 4px 10px rgba(14, 116, 144, 0.10);
     }
+    
     .log-entry.goal { border-left-color: #16a34a; background: #f0fdf4; }
     .log-entry.wait, .log-entry.retreat { border-left-color: #f59e0b; background: #fffbeb; }
+    .log-entry.sidestep { border-left-color: #8b5cf6; background: #f5f3ff; }
     .log-entry.collision { border-left-color: #dc2626; background: #fef2f2; }
     .log-entry-top {
         display: flex; justify-content: space-between; align-items: center;
@@ -563,6 +565,15 @@ def lerp_coord(p1, p2, t):
     return (p1[0] + (p2[0] - p1[0]) * t, p1[1] + (p2[1] - p1[1]) * t)
 
 
+def arc_offset(p1, p2, t, amp=2.5):
+    """Smooth lateral arc offset for SIDESTEP obstacle avoidance."""
+    x, y = lerp_coord(p1, p2, t)
+    dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+    length = (dx * dx + dy * dy) ** 0.5 or 1.0
+    bump = amp * np.sin(np.pi * t)  # 0 at endpoints, peak at midpoint t=0.5
+    return (x - dy / length * bump, y + dx / length * bump)
+
+
 def render_obstacle_pills_html(env):
     """Render live obstacle locations & intents as compact pills."""
     if env.obstacle_mode != "routes":
@@ -612,6 +623,8 @@ def render_log_panel_html(log_entries):
         outcome = entry["outcome"]
         if outcome == "goal":
             cls = "goal"
+        elif entry.get("sidestepped") or outcome == "sidestep":
+            cls = "sidestep"
         elif outcome in ("wait", "retreat"):
             cls = outcome
         elif outcome in ("ped_collision", "car_collision", "invalid"):
@@ -644,7 +657,7 @@ def render_log_panel_html(log_entries):
 def _load_table_cached(path, mtime):
     """mtime ensures Streamlit auto-reloads whenever you overwrite the .npy file."""
     table = np.load(path)
-    expected_shape = (36, 36, 2, 3, 3, 37)
+    expected_shape = (36, 36, 2, 3, 3, 6, 38)
 
     if table.shape != expected_shape:
         st.warning(
@@ -972,7 +985,7 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
 
 def choose_action(env, state, model_name, policy_table, previous_node,
                   consecutive_waits=0, max_consecutive_waits=3):
-    """Use the loaded 5D table; block pointless WAIT on clear roads or long wait loops."""
+    """Use the loaded 6D table; block pointless WAIT on clear roads or long wait loops."""
     valid = env.valid_actions()
 
     if policy_table is not None:
@@ -983,7 +996,7 @@ def choose_action(env, state, model_name, policy_table, previous_node,
                 candidates.remove(36)
 
         if USE_ANTI_BACKTRACKING and previous_node is not None:
-            filtered = [a for a in candidates if a != previous_node]
+            filtered = [a for a in candidates if a != previous_node or a in (36, 37)]
             if filtered:
                 candidates = filtered
 
@@ -1330,7 +1343,7 @@ elif st.session_state.page == "tracking":
 
         while not (terminated or truncated):
             step_num += 1
-            action = choose_action(                        
+            action = choose_action(
                 env, state, selected_model, policy_table, previous_node,
                 consecutive_waits=consecutive_waits, max_consecutive_waits=3
             )
@@ -1341,7 +1354,8 @@ elif st.session_state.page == "tracking":
             total_score += reward
 
             outcome = info.get("outcome")
-            consecutive_waits = (consecutive_waits + 1) if outcome == "wait" else 0   
+            sidestepped = info.get("sidestepped", False)
+            consecutive_waits = (consecutive_waits + 1) if outcome == "wait" else 0
             if info.get("retreated"):
                 retreat_count += 1
             if info.get("rain_violation"):
@@ -1352,6 +1366,9 @@ elif st.session_state.page == "tracking":
 
             if outcome == "wait":
                 status_msg, log_line = "Robot pulled over (WAIT)", "WAIT (Safe pull-over)"
+            elif sidestepped and outcome != "goal":
+                status_msg = f"Dodged obstacle -> {here}"
+                log_line = f"SIDESTEP ➜ {here} (Dodged obstacle)"
             elif outcome == "retreat":
                 blocked_idx = info.get("blocked_node")
                 blocked = env.node_names[blocked_idx] if blocked_idx is not None else "obstacle"
@@ -1364,17 +1381,26 @@ elif st.session_state.page == "tracking":
             elif outcome == "car_collision":
                 status_msg, log_line = f"Car collision at {here}", f"MOVE ➜ {here} (Car Collision)"
             elif outcome == "goal":
-                status_msg, log_line = f"Delivered at {here}!", f"MOVE ➜ {here} (Delivered!)"
+                if sidestepped:
+                    status_msg, log_line = f"Dodged & Delivered at {here}!", f"SIDESTEP ➜ {here} (Dodged & Delivered!)"
+                else:
+                    status_msg, log_line = f"Delivered at {here}!", f"MOVE ➜ {here} (Delivered!)"
             else:
                 status_msg, log_line = f"Moved to {here}", f"MOVE ➜ {here}"
 
             # Update log panel & summary cards right as the step begins
-            log_entries.append({"step": step_num, "text": log_line, "reward": reward, "outcome": outcome})
+            log_entries.append({
+                "step": step_num,
+                "text": log_line,
+                "reward": reward,
+                "outcome": outcome,
+                "sidestepped": sidestepped,
+            })
             log_records.append({
                 "Step": step_num,
                 "From": env.node_names[previous_location],
                 "To": here,
-                "Outcome": outcome,
+                "Outcome": "sidestep_goal" if (sidestepped and outcome == "goal") else outcome,
                 "Reward": reward,
                 "Cumulative_Score": total_score,
                 "Weather": info["weather_str"],
@@ -1396,12 +1422,14 @@ elif st.session_state.page == "tracking":
             for f in range(1, INTERP_FRAMES + 1):
                 t = f / INTERP_FRAMES
 
-                # Robot position: smooth glide on move, or forward-and-back bounce on retreat
-                if moved:
+                # Robot position: curved arc on sidestep, straight glide on move, bounce on retreat
+                if sidestepped:
+                    curr_robot_xy = arc_offset(start_xy, end_xy, t)
+                    extend_trail = True
+                elif moved:
                     curr_robot_xy = lerp_coord(start_xy, end_xy, t)
                     extend_trail = True
                 elif blocked_xy is not None:
-                    # Probe 40% toward blocked node then retreat smoothly back
                     bounce_t = 0.42 * (1.0 - abs(2.0 * t - 1.0))
                     curr_robot_xy = lerp_coord(start_xy, blocked_xy, bounce_t)
                     extend_trail = False
@@ -1421,7 +1449,16 @@ elif st.session_state.page == "tracking":
                     ],
                 }
 
-                frame_status = (f"Moving to {here}..." if (moved and f < INTERP_FRAMES) else status_msg)
+                if f < INTERP_FRAMES:
+                    if sidestepped:
+                        frame_status = f"Sidestepping obstacle to {here}..."
+                    elif moved:
+                        frame_status = f"Moving to {here}..."
+                    else:
+                        frame_status = status_msg
+                else:
+                    frame_status = status_msg
+
                 fig = render_campus_map(
                     env, visited_nodes, env.current_location, env.target_destination,
                     total_score, step_num, frame_status,
@@ -1580,6 +1617,7 @@ elif st.session_state.page == "summary":
     time_labels = ["Day", "Evening", "Night"]
     weather_txt = "Rainy" if d["current_weather"] == 1 else "Sunny"
     waits = sum(1 for r in d["log_records"] if r["Outcome"] == "wait")
+    sidesteps = sum(1 for e in d["log_entries"] if e.get("sidestepped"))
     rain_txt = "100% Dry" if d["rain_violations"] == 0 else f"{d['rain_violations']} Open-Air"
     start_name = env.node_names[d["visited_nodes"][0]]
     target_name = env.node_names[d["target_destination"]]
@@ -1627,12 +1665,13 @@ elif st.session_state.page == "summary":
         </div>
     """, unsafe_allow_html=True)
 
-    # 4 Key Metrics
-    k1, k2, k3, k4 = st.columns(4)
+    # 5 Key Metrics
+    k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Steps Taken", d["step_num"])
-    k2.metric("Retreats", d["retreat_count"])
-    k3.metric("Waits", waits)
-    k4.metric("Rain Safety", rain_txt)
+    k2.metric("Sidesteps", sidesteps)
+    k3.metric("Retreats", d["retreat_count"])
+    k4.metric("Waits", waits)
+    k5.metric("Rain Safety", rain_txt)
 
     st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
