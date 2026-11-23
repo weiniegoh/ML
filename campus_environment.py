@@ -72,7 +72,7 @@ class CampusDeliveryEnv(gym.Env):
         assert set(self.graph.keys()) == set(self.all_nodes)
 
         self.start_locations = [0, 4, 16, 22, 30]
-        self.target_destinations = [5, 9, 2]
+        self.target_destinations = [5, 9, 2, 19, 21]
         self.food_menus = {
             0: ["Nasi Lemak", "Roti Canai", "Teh Tarik"],
             4: ["Chicken Rice", "Wantan Mee", "Mixed Rice"],
