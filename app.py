@@ -644,7 +644,7 @@ def render_log_panel_html(log_entries):
 def _load_table_cached(path, mtime):
     """mtime ensures Streamlit auto-reloads whenever you overwrite the .npy file."""
     table = np.load(path)
-    expected_shape = (36, 36, 2, 3, 3, 6， 37)
+    expected_shape = (36, 36, 2, 3, 3, 6, 37)
 
     if table.shape != expected_shape:
         st.warning(
