@@ -644,7 +644,7 @@ def render_log_panel_html(log_entries):
 def _load_table_cached(path, mtime):
     """mtime ensures Streamlit auto-reloads whenever you overwrite the .npy file."""
     table = np.load(path)
-    expected_shape = (36, 36, 2, 3, 3, 37)
+    expected_shape = (36, 36, 2, 3, 3, 6, 37)
 
     if table.shape != expected_shape:
         st.warning(
@@ -1222,7 +1222,7 @@ elif st.session_state.page == "tracking":
     # Compact Model Status Pill (supports all 4 linked tabular RL models)
     if policy_table is not None:
         model_pill_html = (
-            f'<span class="status-pill-ok">Model: {html.escape(selected_model)} (Trained 5D Table Loaded)</span>'
+            f'<span class="status-pill-ok">Model: {html.escape(selected_model)} (Trained 6D Table Loaded)</span>'
         )
     elif selected_model in MODEL_FILES:
         fname = os.path.basename(MODEL_FILES[selected_model])
