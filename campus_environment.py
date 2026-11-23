@@ -33,6 +33,7 @@ class CampusDeliveryEnv(gym.Env):
 
         self.steps = 0
         self._episode_over = False
+        self.wait_streak = 0
         self.all_nodes = list(range(36))
         self.node_names = {
             0: "Red Bricks", 1: "DK4", 2: "Rimba", 3: "Block C", 4: "Yum Yum",
@@ -119,7 +120,8 @@ class CampusDeliveryEnv(gym.Env):
             spaces.Discrete(36),  # Destination
             spaces.Discrete(2),   # Weather
             spaces.Discrete(3),   # Time of day
-            spaces.Discrete(3)    # Traffic
+            spaces.Discrete(3),   # Traffic
+            spaces.Discrete(6)    # Wait streak (0 to 5+)
         ))
         self.current_location = None
         self.target_destination = None
@@ -127,6 +129,7 @@ class CampusDeliveryEnv(gym.Env):
         self.current_time_of_day = None
         self.current_traffic = None
         self.selected_food = None
+        self.wait_streak = 0
 
     # ------------------------------------------------------------
     # Helpers
@@ -253,7 +256,8 @@ class CampusDeliveryEnv(gym.Env):
                 spaces.Discrete(36),
                 spaces.Discrete(2),
                 spaces.Discrete(3),
-                spaces.Discrete(3)
+                spaces.Discrete(3),
+                spaces.Discrete(6)
             ))
         else:
             # 3 pedestrian slots + 2 car slots; value 36 denotes an inactive slot
@@ -291,7 +295,8 @@ class CampusDeliveryEnv(gym.Env):
             int(self.target_destination),
             int(self.current_weather),
             int(self.current_time_of_day),
-            int(traffic)
+            int(traffic),
+            int(min(self.wait_streak, 5))
         )
 
     def _get_full_obs(self):
@@ -738,6 +743,9 @@ class CampusDeliveryEnv(gym.Env):
         self._reset_route_state()
 
         # Update traffic and return the initial observation
+        
+        self.wait_streak = 0
+
         self.current_traffic = self._get_tabular_obs()[4]
 
         state = self._get_obs()
@@ -777,7 +785,8 @@ class CampusDeliveryEnv(gym.Env):
 
         # Robot action
         if action == 36 and self.allow_wait:
-            reward = -2
+            self.wait_streak += 1
+            reward = -2 * self.wait_streak
             outcome = "wait"
 
         elif action not in self.valid_actions():
@@ -857,7 +866,10 @@ class CampusDeliveryEnv(gym.Env):
                     reward -= 25
                     terminated = True
                     outcome = "ped_collision"
-
+                    
+        if self.current_location != previous_location:
+            self.wait_streak = 0
+            
         self.current_traffic = self._get_tabular_obs()[4]
 
         if not terminated and self.steps >= self.max_steps:
