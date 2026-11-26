@@ -32,7 +32,7 @@ INTERP_FRAMES = 4                # sub-frames per step for smooth gliding (no te
 FRAME_DELAY = 0.14               # seconds per sub-frame (increase to slow down movement)
 STEP_PAUSE = 0.35                # brief pause after arriving at each node
 USE_ANTI_BACKTRACKING = False    # False to match evaluate_agent() in Colab
-OBSTACLE_MODE = "random"         # must match OBSTACLE_MODE used in training
+OBSTACLE_MODE = "routes"         # must match OBSTACLE_MODE used in training
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_FILES = {
@@ -989,15 +989,11 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
 
 def choose_action(env, state, model_name, policy_table, previous_node,
                   consecutive_waits=0, max_consecutive_waits=3):
-    """Use the loaded 6D table; block pointless WAIT on clear roads or long wait loops."""
+    """Use the loaded 6D table directly."""
     valid = env.valid_actions()
 
     if policy_table is not None:
         candidates = list(valid)
-
-        if 36 in candidates and len(candidates) > 1:
-            if state[4] == 0 or consecutive_waits >= max_consecutive_waits:
-                candidates.remove(36)
 
         if USE_ANTI_BACKTRACKING and previous_node is not None:
             filtered = [a for a in candidates if a != previous_node or a in (36, 37)]
@@ -1359,6 +1355,7 @@ elif st.session_state.page == "tracking":
 
             outcome = info.get("outcome")
             sidestepped = info.get("sidestepped", False)
+            sidestep_failed = info.get("sidestep_failed", False)
             consecutive_waits = (consecutive_waits + 1) if outcome == "wait" else 0
             if info.get("retreated"):
                 retreat_count += 1
@@ -1380,6 +1377,10 @@ elif st.session_state.page == "tracking":
                 log_line = f"RETREAT — blocked at {blocked}"
             elif outcome == "invalid":
                 status_msg, log_line = "Invalid action", "INVALID action"
+            elif sidestep_failed and outcome in ("ped_collision", "car_collision"):
+                kind = "Car" if outcome == "car_collision" else "Pedestrian"
+                status_msg = f"Sidestep failed -> {kind} collision at {here}"
+                log_line = f"SIDESTEP FAILED ➜ {here} ({kind} Collision)"
             elif outcome == "ped_collision":
                 status_msg, log_line = f"Pedestrian collision at {here}", f"MOVE ➜ {here} (Pedestrian Collision)"
             elif outcome == "car_collision":
