@@ -655,12 +655,14 @@ def render_log_panel_html(log_entries):
 
 @st.cache_resource
 def _load_table_cached(path, mtime):
-    """mtime ensures Streamlit auto-reloads whenever you overwrite the .npy file."""
-    table = np.load(path)
+    """mtime ensures Streamlit auto-reloads whenever you overwrite the model file."""
+    loaded = np.load(path)
     if isinstance(loaded, np.lib.npyio.NpzFile):
         table = loaded[loaded.files[0]]
     else:
         table = loaded
+
+    expected_shape = (36, 36, 2, 3, 3, 6, 38)
 
     if table.shape != expected_shape:
         st.warning(
@@ -669,7 +671,6 @@ def _load_table_cached(path, mtime):
         )
         return None
     return table
-
 
 def load_model_table(model_name):
     """Load the trained 5D policy/Q-table for the selected RL model if present."""
