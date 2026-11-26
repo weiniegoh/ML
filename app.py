@@ -988,7 +988,7 @@ def render_campus_map(env, visited_nodes, current_node, target_node,
 # ==========================================
 
 def choose_action(env, state, model_name, policy_table, previous_node,
-                  last_blocked_node=None)):
+                  last_blocked_node=None):
     """Use the loaded 6D table directly."""
     valid = env.valid_actions()
 
