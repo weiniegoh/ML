@@ -36,7 +36,7 @@ OBSTACLE_MODE = "random"         # must match OBSTACLE_MODE used in training
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_FILES = {
-    "Q-Learning": os.path.join(BASE_DIR, "q_table.npy"),
+    "Q-Learning": os.path.join(BASE_DIR, "q_table.npz"),
     "SARSA":      os.path.join(BASE_DIR, "sarsa_table.npy"),
     "A2C":        os.path.join(BASE_DIR, "a2c_table.npy"),
     "REINFORCE":  os.path.join(BASE_DIR, "reinforce_table.npy"),
