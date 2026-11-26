@@ -31,7 +31,7 @@ except ImportError:
 INTERP_FRAMES = 4                # sub-frames per step for smooth gliding (no teleporting)
 FRAME_DELAY = 0.14               # seconds per sub-frame (increase to slow down movement)
 STEP_PAUSE = 0.35                # brief pause after arriving at each node
-USE_ANTI_BACKTRACKING = False    # False to match evaluate_agent() in Colab
+USE_ANTI_BACKTRACKING = True    # False to match evaluate_agent() in Colab
 OBSTACLE_MODE = "routes"         # must match OBSTACLE_MODE used in training
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -995,6 +995,9 @@ def choose_action(env, state, model_name, policy_table, previous_node,
     if policy_table is not None:
         candidates = list(valid)
 
+        if last_blocked_node is not None and last_blocked_node in candidates and len(candidates) > 1:
+            candidates.remove(last_blocked_node)
+
         if USE_ANTI_BACKTRACKING and previous_node is not None:
             filtered = [a for a in candidates if a != previous_node or a in (36, 37)]
             if filtered:
@@ -1321,6 +1324,7 @@ elif st.session_state.page == "tracking":
         step_num = 0
         terminated = truncated = False
         previous_node = None
+        last_blocked_node = None
         visited_nodes = [env.current_location]
         log_entries = []
         log_records = []
@@ -1345,7 +1349,7 @@ elif st.session_state.page == "tracking":
             step_num += 1
             action = choose_action(
                 env, state, selected_model, policy_table, previous_node,
-                consecutive_waits=consecutive_waits, max_consecutive_waits=3
+                last_blocked_node=last_blocked_node
             )
             previous_location = env.current_location
             prev_positions = {"ped": list(env.pedestrian_positions), "car": list(env.car_positions)}
@@ -1354,6 +1358,7 @@ elif st.session_state.page == "tracking":
             total_score += reward
 
             outcome = info.get("outcome")
+            last_blocked_node = info.get("blocked_node") if outcome == "retreat" else None
             sidestepped = info.get("sidestepped", False)
             sidestep_failed = info.get("sidestep_failed", False)
             consecutive_waits = (consecutive_waits + 1) if outcome == "wait" else 0
