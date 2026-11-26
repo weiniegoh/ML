@@ -8,7 +8,7 @@ import heapq
 class CampusDeliveryEnv(gym.Env):
     metadata = {"render_modes": []}
 
-    def __init__(self, max_steps=80, obstacle_mode="random", contact_mode="retreat",
+    def __init__(self, max_steps=80, obstacle_mode="routes", contact_mode="retreat",
                  allow_wait=True, stay_prob=0.2, retreat_penalty=-3,
                  allow_sidestep=True, sidestep_penalty=-2, sidestep_fail_prob=0.15):
         super().__init__()
@@ -155,7 +155,7 @@ class CampusDeliveryEnv(gym.Env):
         actions = list(self.graph[loc])
         if self.allow_wait:
             actions.append(36)
-        if self.allow_sidestep and self.current_traffic != 0:
+        if self.allow_sidestep and self.current_traffic == 0:
             actions.append(37)
 
         return actions
@@ -816,7 +816,7 @@ class CampusDeliveryEnv(gym.Env):
             reward = -2 * self.wait_streak
             outcome = "wait"
 
-        elif action == 37 and self.allow_sidestep and prev_traffic != 0:
+        elif action == 37 and self.allow_sidestep and prev_traffic == 0:
             n = self.planned_next_node()
             failed = self._side_rng.random() < self.sidestep_fail_prob
             edge = frozenset({self.current_location, n})
