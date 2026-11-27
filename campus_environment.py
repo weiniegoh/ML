@@ -10,7 +10,8 @@ class CampusDeliveryEnv(gym.Env):
 
     def __init__(self, max_steps=80, obstacle_mode="routes", contact_mode="retreat",
                  allow_wait=True, stay_prob=0.2, retreat_penalty=-3,
-                 allow_sidestep=True, sidestep_penalty=-2, sidestep_fail_prob=0.15):
+                 allow_sidestep=True, sidestep_penalty=-2, sidestep_fail_prob=0.15,
+                 battery_capacity=15):
         super().__init__()
         if obstacle_mode not in ("random", "mixed", "routes"):
             raise ValueError("obstacle_mode must be 'random', 'mixed' or 'routes'.")
@@ -27,6 +28,22 @@ class CampusDeliveryEnv(gym.Env):
         if not isinstance(allow_sidestep, bool):
             raise ValueError("allow_sidestep must be True or False.")
 
+        if (
+            isinstance(sidestep_fail_prob, bool)
+            or not isinstance(sidestep_fail_prob, (int, float, np.integer, np.floating))
+            or not 0 <= sidestep_fail_prob <= 1
+        ):
+            raise ValueError("sidestep_fail_prob must be between 0 and 1.")
+
+        if (
+            isinstance(battery_capacity, bool)
+            or not isinstance(battery_capacity, (int, np.integer))
+            or battery_capacity <= 0
+        ):
+            raise ValueError("battery_capacity must be a positive integer.")
+
+        self.battery_capacity = int(battery_capacity)
+        self.battery_remaining = self.battery_capacity
         self.max_steps = max_steps
         self.obstacle_mode = obstacle_mode
         self.contact_mode = contact_mode
@@ -128,7 +145,8 @@ class CampusDeliveryEnv(gym.Env):
             spaces.Discrete(2),   # Weather
             spaces.Discrete(3),   # Time of day
             spaces.Discrete(3),   # Traffic
-            spaces.Discrete(6)    # Wait streak (0 to 5+)
+            spaces.Discrete(6),   # Wait streak (0 to 5+)
+            spaces.Discrete(self.battery_capacity + 1)  # Battery remaining
         ))
         self.current_location = None
         self.target_destination = None
@@ -282,7 +300,8 @@ class CampusDeliveryEnv(gym.Env):
                 spaces.Discrete(2),
                 spaces.Discrete(3),
                 spaces.Discrete(3),
-                spaces.Discrete(6)
+                spaces.Discrete(6),
+                spaces.Discrete(self.battery_capacity + 1)
             ))
         else:
             # 3 pedestrian slots + 2 car slots; value 36 denotes an inactive slot
@@ -295,7 +314,8 @@ class CampusDeliveryEnv(gym.Env):
                 spaces.Discrete(37),
                 spaces.Discrete(37),
                 spaces.Discrete(37),
-                spaces.Discrete(37)
+                spaces.Discrete(37),
+                spaces.Discrete(self.battery_capacity + 1)
             ))
 
     def _get_tabular_obs(self):
@@ -321,7 +341,8 @@ class CampusDeliveryEnv(gym.Env):
             int(self.current_weather),
             int(self.current_time_of_day),
             int(traffic),
-            int(min(self.wait_streak, 5))
+            int(self.wait_streak),
+            self.battery_remaining
         )
 
     def _get_full_obs(self):
@@ -338,7 +359,8 @@ class CampusDeliveryEnv(gym.Env):
             int(ped_positions[1]),
             int(ped_positions[2]),
             int(car_positions[0]),
-            int(car_positions[1])
+            int(car_positions[1]),
+            self.battery_remaining
         )
 
     def _get_obs(self):
@@ -361,7 +383,9 @@ class CampusDeliveryEnv(gym.Env):
             "traffic_str": traffic_map[self.current_traffic],
             "time_of_day_str": ["Day", "Evening", "Night"][self.current_time_of_day],
             "outcome": outcome,
-            "rain_violation": rain_violation
+            "rain_violation": rain_violation,
+            "battery_remaining": self.battery_remaining,
+            "battery_capacity": self.battery_capacity
         }
 
     # ------------------------------------------------------------
@@ -641,14 +665,14 @@ class CampusDeliveryEnv(gym.Env):
     # ------------------------------------------------------------
 
     def reset(self, seed=None, options=None):
-        """Optional customer order: {'start', 'target', 'food', 'weather', 'time_of_day'}."""
+        """Reset an order, optionally choosing its conditions and initial battery."""
         super().reset(seed=seed)
 
         options = {} if options is None else options
         if not isinstance(options, dict):
             raise TypeError("Options must be a dictionary.")
         unknown = set(options) - {
-            "start", "target", "food", "weather", "time_of_day"
+            "start", "target", "food", "weather", "time_of_day", "battery"
         }
         if unknown:
             raise ValueError(f"Unknown reset options: {unknown}")
@@ -665,6 +689,15 @@ class CampusDeliveryEnv(gym.Env):
             if value not in (0, 1, 2):
                 raise ValueError("Time of day must be 0 (Day), 1 (Evening) or 2 (Night).")
 
+        initial_battery = options.get("battery", self.battery_capacity)
+        if (
+            isinstance(initial_battery, bool)
+            or not isinstance(initial_battery, (int, np.integer))
+            or not 1 <= initial_battery <= self.battery_capacity
+        ):
+            raise ValueError(f"Starting battery must be between 1 and {self.battery_capacity}.")
+
+        self.battery_remaining = int(initial_battery)
         self.steps = 0
         self._episode_over = False
 
@@ -792,6 +825,7 @@ class CampusDeliveryEnv(gym.Env):
 
         action = int(action)
         reward = 0
+        energy_used = 0
         terminated = False
         truncated = False
         outcome = "move"
@@ -812,29 +846,35 @@ class CampusDeliveryEnv(gym.Env):
 
         # Robot action
         if action == 36 and self.allow_wait:
-            self.wait_streak += 1
+            self.wait_streak = min(self.wait_streak + 1, 5)
             reward = -2 * self.wait_streak
             outcome = "wait"
 
         elif action == 37 and self.allow_sidestep and prev_traffic == 0:
-            n = self.planned_next_node()
-            failed = self._side_rng.random() < self.sidestep_fail_prob
-            edge = frozenset({self.current_location, n})
-            reward += self.longer_paths.get(edge, -1) + self.visibility_penalty() + self.sidestep_penalty
-            if self.current_weather == 1 and edge in self.uncovered_paths:
-                reward -= 40
-                rain_violation = True
-            if failed:
+            reward = self.sidestep_penalty
+            energy_used = 1
+
+            if self._side_rng.random() < self.sidestep_fail_prob:
                 sidestep_failed = True
-                if n in self.pedestrian_positions:
-                    contact = "ped"
-                elif n in self.car_positions:
-                    contact = "car"
-                outcome = "move"
+                outcome = "sidestep_failed"
             else:
-                sidestepped = True
-                outcome = "sidestep"
-            self.current_location = n
+                n = self.planned_next_node()
+                edge = frozenset({self.current_location, n})
+                energy_used = 2 if edge in self.longer_paths else 1
+                reward += self.longer_paths.get(edge, -1) + self.visibility_penalty()
+
+                if self.current_weather == 1 and edge in self.uncovered_paths:
+                    reward -= 40
+                    rain_violation = True
+
+                if energy_used <= self.battery_remaining:
+                    self.current_location = n
+                    sidestepped = True
+                    outcome = "sidestep"
+                else:
+                    rain_violation = False
+                    reward = self.sidestep_penalty
+                    outcome = "insufficient_battery"
 
         elif action not in self.valid_actions():
             reward = -5
@@ -847,13 +887,14 @@ class CampusDeliveryEnv(gym.Env):
             blocked_node = action
 
         else:
-            # Record contact BEFORE obstacles move
-            if action in self.pedestrian_positions:
-                contact = "ped"
-            elif action in self.car_positions:
+            # Record contact before obstacles move. Car contact takes priority.
+            if action in self.car_positions:
                 contact = "car"
+            elif action in self.pedestrian_positions:
+                contact = "ped"
 
             path_edge = frozenset({self.current_location, action})
+            energy_used = 2 if path_edge in self.longer_paths else 1
 
             # Normal route movement reward
             reward += self.longer_paths.get(path_edge, -1)
@@ -866,20 +907,19 @@ class CampusDeliveryEnv(gym.Env):
             # Reduced visibility penalty
             reward += self.visibility_penalty()
 
-            self.current_location = action
-
-        # Delivery completes immediately upon safely entering an unoccupied destination
-        if outcome in ("move", "sidestep") and contact is None and self.current_location == self.target_destination:
-            reward += 100
-            terminated = True
-            outcome = "goal"
+            if energy_used <= self.battery_remaining:
+                self.current_location = action
+            else:
+                contact = None
+                rain_violation = False
+                reward = 0
+                outcome = "insufficient_battery"
 
         # Obstacles move
         self._move_obstacles()
 
-        # Collisions only happen if delivery is still ongoing and the robot did NOT
-        # safely pull over via WAIT (36), defensive RETREAT, or successful SIDESTEP
-        if not terminated and outcome not in ("wait", "retreat", "sidestep"):
+        # Check contact during movement before handling stationary outcomes.
+        if outcome not in ("wait", "retreat"):
             hit_ped = (self.current_location in self.pedestrian_positions) or (contact == "ped")
             hit_car = (self.current_location in self.car_positions) or (contact == "car")
 
@@ -899,12 +939,12 @@ class CampusDeliveryEnv(gym.Env):
                 # If sensor was CLEAR (0) before moving, an obstacle 2 hops away stepped
                 # into the same node simultaneously -> trigger safe emergency retreat (-3)
                 if prev_traffic == 0 and self.contact_mode == "retreat":
+                    blocked_node = self.current_location
                     self.current_location = previous_location
                     reward = self.retreat_penalty
+                    rain_violation = False
                     outcome = "retreat"
                     retreated = True
-                    blocked_node = action
-                    rain_violation = False
                 elif hit_car:
                     reward -= 50
                     terminated = True
@@ -914,7 +954,36 @@ class CampusDeliveryEnv(gym.Env):
                     terminated = True
                     outcome = "ped_collision"
 
-        if self.current_location != previous_location:
+        # An obstacle can enter the occupied junction during a wait or retreat.
+        if outcome in ("retreat", "wait"):
+            if self.current_location in self.car_positions:
+                reward -= 50
+                terminated = True
+                outcome = "car_collision"
+            elif self.current_location in self.pedestrian_positions:
+                reward -= 25
+                terminated = True
+                outcome = "ped_collision"
+
+        # Charge for movement attempts, including emergency retreats.
+        self.battery_remaining = max(0, self.battery_remaining - energy_used)
+
+        # A safe delivery can use the final battery unit.
+        if (
+            not terminated
+            and outcome in ("move", "sidestep")
+            and self.current_location == self.target_destination
+        ):
+            reward += 100
+            terminated = True
+            outcome = "goal"
+
+        if not terminated and self.battery_remaining == 0:
+            reward -= 20
+            terminated = True
+            outcome = "battery_depleted"
+
+        if outcome != "wait":
             self.wait_streak = 0
 
         self.current_traffic = self._get_tabular_obs()[4]
@@ -945,20 +1014,25 @@ NUM_TEST_EPISODES = 1000
 
 
 def evaluate_agent(env, table=None, num_episodes=NUM_TEST_EPISODES, base_seed=TEST_SEED):
-    """Evaluate a Q-table (shape (36, 36, 2, 3, 3, 6, 38)) or, if table=None, a random
-    valid-action baseline. The same seeds give every agent the same orders,
-    weather and obstacle movement."""
+    """Evaluate a tabular policy or a random valid-action baseline.
+
+    The policy table uses the environment's tabular shape, including the
+    battery axis, followed by the action dimension.
+    """
     if num_episodes <= 0:
         raise ValueError("num_episodes must be greater than zero.")
     if table is not None:
         env.set_observation_mode("tabular")
         table = np.asarray(table)
-        if table.shape != (36, 36, 2, 3, 3, 6, 38):
-            raise ValueError(f"Q-table must have shape (36, 36, 2, 3, 3, 6, 38), got {table.shape}.")
+        expected_shape = tuple(int(space.n) for space in env.observation_space.spaces) + (
+            int(env.action_space.n),
+        )
+        if table.shape != expected_shape:
+            raise ValueError(f"Policy table must have shape {expected_shape}, got {table.shape}.")
 
     rng = random.Random(base_seed)
-    success = ped_crashes = car_crashes = timeouts = 0
-    rainy_episodes = rain_compliant = retreats = 0
+    success = ped_crashes = car_crashes = timeouts = battery_failures = 0
+    rainy_episodes = rain_compliant = covered_deliveries = retreats = 0
     total_rewards, steps_for_success = [], []
 
     for ep in range(num_episodes):
@@ -990,10 +1064,14 @@ def evaluate_agent(env, table=None, num_episodes=NUM_TEST_EPISODES, base_seed=TE
             ped_crashes += 1
         elif info["outcome"] == "car_collision":
             car_crashes += 1
+        elif info["outcome"] == "battery_depleted":
+            battery_failures += 1
         elif truncated:
             timeouts += 1
         if is_rainy and not rain_violation:
             rain_compliant += 1
+            if info["outcome"] == "goal":
+                covered_deliveries += 1
         total_rewards.append(ep_reward)
 
     return {
@@ -1002,23 +1080,29 @@ def evaluate_agent(env, table=None, num_episodes=NUM_TEST_EPISODES, base_seed=TE
         "Pedestrian Crashes": ped_crashes,
         "Car Crashes": car_crashes,
         "Timeouts": timeouts,
+        "Battery Failures": battery_failures,
+        "Battery Failure Rate (%)": 100 * battery_failures / num_episodes,
         "Retreats per Episode": retreats / num_episodes,
         "Rain Roof Compliance (%)": (rain_compliant / rainy_episodes * 100) if rainy_episodes else None,
+        "Covered Delivery Success (%)": (100 * covered_deliveries / rainy_episodes if rainy_episodes else None),
         "Avg Reward": float(np.mean(total_rewards)),
         "Avg Delivery Steps": float(np.mean(steps_for_success)) if steps_for_success else None,
     }
 
 
-if __name__ == "__main__":
-    env = CampusDeliveryEnv()
-    state, info = env.reset(seed=42)
+# Use the same settings for training, evaluation, and the demo.
+OBSTACLE_MODE = "routes"
+CONTACT_MODE = "retreat"
 
-    print("Starting Restaurant:", info["location_str"])
-    print("Destination:", info["target_str"])
-    print("Selected Food:", info["food_item"])
-    print("Weather:", info["weather_str"])
-    print("Time of Day:", info["time_of_day_str"])
-    print("Traffic:", info["traffic_str"])
-    print("Initial State:", state)
-    print("Valid Actions:", env.valid_actions())
-    print("Obstacles:", env.pedestrian_positions, env.car_positions)
+
+def make_env():
+    env = CampusDeliveryEnv(
+        max_steps=80,
+        obstacle_mode=OBSTACLE_MODE,
+        contact_mode=CONTACT_MODE,
+        allow_sidestep=False,
+        battery_capacity=15,
+    )
+    env.set_observation_mode("tabular")
+    env.action_space.seed(42)
+    return env
