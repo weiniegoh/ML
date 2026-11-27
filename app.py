@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from campus_delivery_env_combined import make_env
+from campus_environment import make_env
 
 
 MODEL_FILES = {
