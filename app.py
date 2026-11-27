@@ -1,5 +1,6 @@
 import random
 import time
+from html import escape
 from pathlib import Path
 from zipfile import BadZipFile
 
@@ -15,7 +16,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from campus_environment import make_env
+from campus_delivery_env_combined import make_env
 
 
 MODEL_FILES = {
@@ -34,67 +35,247 @@ st.set_page_config(page_title="TAR UMT Campus Delivery", page_icon="🤖", layou
 
 st.markdown("""
 <style>
-[data-testid="stAppViewContainer"] {background:#f4f8fb;color:#0f2539;}
-[data-testid="stHeader"] {background:#f4f8fb;}
-[data-testid="stMainBlockContainer"] {max-width:1370px;padding-top:2.3rem;}
-[data-testid="stMarkdownContainer"] h1,
-[data-testid="stMarkdownContainer"] h2,
-[data-testid="stMarkdownContainer"] h3,
-[data-testid="stWidgetLabel"] p {color:#102b40;}
-[data-testid="stMetric"] {
-    background:#fff;border:1px solid #d7e5ed;border-radius:12px;padding:.65rem .9rem;
+:root {
+    color-scheme: light;
+    --ink:#142c3c; --muted:#536b78; --teal:#08786d; --teal-dark:#075c54;
+    --paper:#fff; --wash:#f3f7f7; --line:#dce8e8; --font:Inter,system-ui,sans-serif;
 }
-[data-testid="stMetric"] p, [data-testid="stMetricValue"],
-[data-testid="stCaptionContainer"] p {color:#19394d;}
-div:has(> div[data-testid="stMarkdown"] .campus-banner) {
-    scroll-margin-top: 1rem;
+html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"],
+[data-testid="stMain"], [data-testid="stBottom"] {background:var(--wash);color:var(--ink);}
+[data-testid="stAppViewContainer"] {font-family:var(--font);}
+[data-testid="stMainBlockContainer"], .block-container {
+    max-width:1260px;padding:4.15rem 2rem 3rem;
 }
-.st-key-campus_nav_order button,
-.st-key-campus_nav_tracking button,
-.st-key-campus_nav_summary button {border-radius:10px;font-weight:700;}
-.campus-banner {
-    background:linear-gradient(112deg,#102840,#12646a);color:#f7fcff;
-    padding:1.8rem 2rem;border-radius:18px;margin-bottom:.9rem;
+[data-testid="stDecoration"] {display:none;}
+.stApp h1, .stApp h2, .stApp h3, .stApp h4,
+[data-testid="stWidgetLabel"] p {color:var(--ink);letter-spacing:-.025em;}
+[data-testid="stCaptionContainer"] p {color:var(--muted);}
+[data-testid="stVerticalBlockBorderWrapper"],
+.st-key-order_form, .st-key-route_card, .st-key-tracking_map, .st-key-tracking_status,
+.st-key-summary_route, .st-key-summary_log {
+    background:var(--paper);border-color:var(--line)!important;
+    border-radius:18px!important;
 }
-.campus-banner h1 {
-    color:#fff!important;font-size:clamp(1.65rem,3vw,2.5rem);padding:0;margin:0;
+.st-key-order_form,.st-key-route_card,.st-key-tracking_map,.st-key-tracking_status,
+.st-key-summary_route,.st-key-summary_log {
+    box-shadow:0 7px 25px #183d4210;
 }
-.campus-banner p {color:#d4edef;margin:.3rem 0 0;}
+[data-baseweb="select"] > div, [data-baseweb="select"] input {
+    background:#fff!important;color:var(--ink)!important;border-color:var(--line);
+    border-radius:10px!important;
+}
+[data-baseweb="popover"], [role="listbox"], [role="option"] {
+    background:#fff!important;color:var(--ink)!important;
+}
+[data-baseweb="popover"] * {color:var(--ink)!important;}
+.stApp [data-testid="stBaseButton-primary"] {
+    background:#08786d;border-color:#08786d;color:#fff;border-radius:10px;font-weight:700;
+}
+.stApp [data-testid="stBaseButton-primary"]:hover {
+    background:#075c54;border-color:#075c54;color:#fff;
+}
+.stApp [data-testid="stBaseButton-primary"]:disabled {
+    background:#dbe6e6;border-color:#dbe6e6;color:#536b78;opacity:1;
+}
+.stApp [data-testid="stBaseButton-secondary"],
+.stApp [data-testid="stBaseButton-secondaryFormSubmit"] {
+    background:#fff;color:var(--ink);border-color:var(--line);border-radius:10px;font-weight:650;
+}
+.stApp button:focus-visible {outline:3px solid #54b8ad;outline-offset:3px;}
+.st-key-campus_nav_order button,.st-key-campus_nav_tracking button,
+.st-key-campus_nav_summary button {
+    min-height:2.65rem;font-weight:650;
+}
+.st-key-campus_nav_order [data-testid="stBaseButton-primary"],
+.st-key-campus_nav_tracking [data-testid="stBaseButton-primary"],
+.st-key-campus_nav_summary [data-testid="stBaseButton-primary"] {
+    background:#ddf2ee;color:#075c54;border-color:#85c8bc;
+}
+.st-key-campus_nav_order button:disabled,
+.st-key-campus_nav_tracking button:disabled,
+.st-key-campus_nav_summary button:disabled {
+    background:#f3f7f7;color:#687c86;border-color:#dce8e8;
+}
+.app-brand {display:flex;align-items:center;gap:.72rem;padding:.1rem 0 .2rem;}
+.brand-mark {
+    display:grid;place-content:center;width:37px;height:37px;flex:none;border-radius:11px;
+    background:#0b7469;color:#fff;font-size:1.15rem;font-weight:800;
+}
+.brand-main {color:#162e3e;font-weight:770;line-height:1.15;font-size:1.04rem;}
+.brand-campus {color:#536b78;font-size:.75rem;}
+.hero {
+    position:relative;overflow:hidden;isolation:isolate;margin:.5rem 0 .8rem;
+    padding:clamp(1.25rem,2.7vw,2.05rem);
+    border-radius:20px;background:linear-gradient(110deg,#112e3b 5%,#104d4c 100%);color:#fff;
+}
+.hero::before,.hero::after {
+    content:"";position:absolute;z-index:-1;border:1px solid #9ce5d750;border-radius:50%;
+    pointer-events:none;
+}
+.hero::before {width:23rem;height:23rem;right:-7rem;top:-13rem;}
+.hero::after {width:30rem;height:30rem;right:-9rem;top:-15rem;}
+.hero h1 {
+    margin:.35rem 0 .35rem;padding:0;color:#fff!important;
+    font-weight:760;font-size:clamp(1.8rem,3.8vw,2.8rem);line-height:1.1;letter-spacing:-.04em;
+}
+.hero p {margin:0;color:#d5ebe8;max-width:42ch;font-size:.96rem;line-height:1.5;}
+.hero-tag {
+    display:inline-block;padding:.23rem .62rem;border-radius:999px;border:1px solid #91d4c57a;
+    color:#e6f7f3;font-size:.72rem;font-weight:650;
+}
+.section-heading {display:flex;align-items:baseline;justify-content:space-between;gap:.6rem;}
+.section-heading h2 {
+    margin:0;padding:0;color:var(--ink);font-size:1.14rem;letter-spacing:-.025em;font-weight:730;
+}
+.section-heading .aside {color:var(--muted);font-size:.78rem;}
+.route-line {
+    display:flex;align-items:center;gap:.85rem;flex-wrap:wrap;
+    background:#f0f7f6;border-radius:12px;padding:.75rem .85rem;margin:.2rem 0 .48rem;
+}
+.route-label {display:block;color:var(--muted);font-size:.7rem;line-height:1.3;}
+.route-value {display:block;color:var(--ink);font-size:.91rem;font-weight:700;line-height:1.38;}
+.route-end {display:flex;align-items:center;gap:.52rem;}
+.route-pin {width:9px;height:9px;border-radius:50%;background:#b46627;flex:none;}
+.route-pin.drop {background:#08786d;}
+.route-arrow {color:#65828b;font-size:1rem;}
 .battery-card {
-    background:#fff;border:1px solid #d7e5ed;border-radius:14px;
-    padding:1rem 1.1rem;margin-bottom:.65rem;
+    background:#f0f7f6;border:1px solid #d8eae6;border-radius:13px;
+    padding:.9rem 1rem;color:var(--ink);
 }
-.battery-heading {display:flex;justify-content:space-between;gap:.75rem;color:#17384a;}
-.battery-heading span {font-weight:700;}
-.battery-track {height:12px;background:#e5edf3;border-radius:999px;overflow:hidden;margin:.65rem 0 .4rem;}
+.battery-heading {display:flex;align-items:center;justify-content:space-between;gap:.55rem;}
+.battery-heading span {font-size:.86rem;font-weight:720;}
+.battery-status {
+    padding:.18rem .48rem;border-radius:999px;background:#dfefec;font-size:.72rem;font-weight:700;
+}
+.battery-status.low {background:#f8ebd7;color:#815411;}
+.battery-status.critical {background:#fae2dd;color:#9a352a;}
+.battery-reading {display:flex;align-items:baseline;justify-content:space-between;margin-top:.4rem;}
+.battery-reading strong {font-size:1.56rem;letter-spacing:-.04em;line-height:1.2;}
+.battery-reading small {color:var(--muted);font-size:.8rem;}
+.battery-track {height:8px;background:#d9e8e5;border-radius:999px;overflow:hidden;margin-top:.6rem;}
 .battery-fill {height:100%;border-radius:inherit;}
-.battery-status {font-size:.85rem;color:#405c6d;}
+.delivery-state {padding:.65rem .05rem .2rem;}
+.delivery-state .place {color:var(--ink);font-weight:740;line-height:1.3;font-size:1.15rem;}
+.delivery-state .meta {color:var(--muted);font-size:.79rem;margin-top:.16rem;}
+.delivery-state .event {color:var(--teal-dark);font-size:.86rem;font-weight:680;margin:.28rem 0 0;}
+.activity-list {margin:0;padding:0;list-style:none;}
+.activity-row {display:flex;gap:.62rem;align-items:flex-start;padding:.58rem .04rem;border-top:1px solid var(--line);}
+.activity-dot {width:8px;height:8px;flex:none;border-radius:50%;background:#0a8878;margin-top:.36rem;}
+.activity-dot.warn {background:#b47022;}
+.activity-dot.stop {background:#a83d30;}
+.activity-row .activity-desc {flex:1;min-width:0;}
+.activity-row strong {display:block;color:var(--ink);font-size:.81rem;font-weight:690;}
+.activity-row small {display:block;color:var(--muted);font-size:.73rem;}
+.activity-energy {font-size:.72rem;color:var(--muted);white-space:nowrap;padding:.15rem .38rem;background:#f0f5f5;border-radius:5px;}
+.result-panel {
+    padding:1.05rem 1.2rem;border:1px solid #d0e8e1;border-left:4px solid #08786d;
+    border-radius:13px;background:#eaf7f3;color:#174b3d;
+}
+.result-panel.warn {border-color:#f0dfbf;border-left-color:#a6382c;background:#fdf2e7;color:#733e22;}
+.result-panel strong {display:block;font-size:1.2rem;line-height:1.3;letter-spacing:-.025em;}
+.result-panel span {display:block;margin-top:.2rem;font-size:.86rem;line-height:1.4;}
+[data-testid="stMetric"] {
+    background:#fff;border:1px solid var(--line);border-radius:12px;padding:.72rem .84rem;
+}
+[data-testid="stMetricLabel"] p, [data-testid="stMetricValue"] {color:var(--ink)!important;}
+[data-testid="stMetricValue"] {font-weight:720;letter-spacing:-.03em;}
+[data-testid="stImage"] img {border-radius:12px;}
+@media (max-width:640px) {
+    [data-testid="stMainBlockContainer"], .block-container {padding:4.1rem .9rem 2rem;}
+    .hero {margin-top:.25rem;}
+    .hero p {font-size:.85rem;}
+    .route-line {gap:.55rem;}
+    [data-testid="stHorizontalBlock"]:has(
+        > [data-testid="stColumn"] :is(.st-key-order_form, .st-key-tracking_map, .st-key-summary_route)
+    ) {flex-direction:column;}
+    [data-testid="stHorizontalBlock"]:has(
+        > [data-testid="stColumn"] :is(.st-key-order_form, .st-key-tracking_map, .st-key-summary_route)
+    ) > [data-testid="stColumn"] {width:100%!important;flex:1 1 auto!important;}
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .st-key-campus_nav_order) {
+        display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.4rem;
+    }
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .st-key-campus_nav_order)
+    > [data-testid="stColumn"] {width:100%!important;min-width:0!important;}
+    .st-key-campus_nav_order button,.st-key-campus_nav_tracking button,
+    .st-key-campus_nav_summary button {font-size:.75rem;padding:.25rem .34rem;}
+}
 </style>
 """, unsafe_allow_html=True)
 
 
+def hero(title, description, tag=None):
+    badge = f'<span class="hero-tag">{escape(tag)}</span>' if tag else ""
+    st.markdown(
+        f'<div class="hero">{badge}<h1>{escape(title)}</h1><p>{escape(description)}</p></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def section_heading(container, title, aside=""):
+    detail = f'<span class="aside">{escape(aside)}</span>' if aside else ""
+    container.markdown(
+        f'<div class="section-heading"><h2>{escape(title)}</h2>{detail}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def route_strip(container, pickup, destination):
+    container.markdown(
+        f"""
+        <div class="route-line">
+            <div class="route-end"><span class="route-pin" aria-hidden="true"></span>
+                <div><span class="route-label">Pickup</span>
+                    <strong class="route-value">{escape(pickup)}</strong></div>
+            </div>
+            <div class="route-arrow" aria-hidden="true">→</div>
+            <div class="route-end"><span class="route-pin drop" aria-hidden="true"></span>
+                <div><span class="route-label">Destination</span>
+                    <strong class="route-value">{escape(destination)}</strong></div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_battery(container, remaining, capacity, heading="Robot battery"):
     percent = 100 * remaining / capacity
-    if remaining == 0:
-        status, color = "Depleted", "#b42318"
+    if not remaining:
+        status, tone, color = "Depleted", "critical", "#b42318"
     elif percent <= 20:
-        status, color = "Critical", "#b42318"
+        status, tone, color = "Critical", "critical", "#b42318"
     elif percent <= 40:
-        status, color = "Low", "#9a5300"
+        status, tone, color = "Low charge", "low", "#ad6a20"
     else:
-        status, color = "Available", "#087e73"
+        status, tone, color = ("Fully charged" if remaining == capacity else "Available"), "", "#08786d"
 
     container.markdown(
         f"""
         <div class="battery-card">
-            <div class="battery-heading"><span>{heading}</span>
-                <strong>{remaining} / {capacity} units</strong>
+            <div class="battery-heading"><span>{escape(heading)}</span>
+                <span class="battery-status {tone}">{status}</span>
             </div>
-            <div class="battery-track" role="progressbar" aria-label="{heading}"
+            <div class="battery-reading">
+                <strong>{remaining} / {capacity} units</strong><small>{percent:.0f}%</small>
+            </div>
+            <div class="battery-track" role="progressbar" aria-label="{escape(heading)}"
                  aria-valuemin="0" aria-valuemax="{capacity}" aria-valuenow="{remaining}">
                 <div class="battery-fill" style="width:{percent:.2f}%;background:{color}"></div>
             </div>
-            <div class="battery-status">{status} · {percent:.0f}%</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_delivery_status(container, location, status, weather, time_of_day, step, score):
+    container.markdown(
+        f"""
+        <div class="delivery-state">
+            <div class="meta">Robot location</div>
+            <div class="place">{escape(location)}</div>
+            <div class="event">{escape(status)}</div>
+            <div class="meta">Step {step} · {score:+} pts · {escape(weather)} · {escape(time_of_day)}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -244,8 +425,8 @@ def place_icon(ax, icon, xy, offset, order):
 
 
 def draw_map(env, start, target, path, robot_xy, pedestrians=(), cars=(), rainy=False):
-    fig, ax = plt.subplots(figsize=(12.4, 7.6), facecolor="#f3f8fc")
-    ground = "#cae2e5" if rainy else "#b8d99b"
+    fig, ax = plt.subplots(figsize=(12.4, 7.6), facecolor="#f0f7f6")
+    ground = "#dcebf0" if rainy else "#dcead1"
     ax.set_facecolor(ground)
     coords = env.node_coords
 
@@ -253,7 +434,7 @@ def draw_map(env, start, target, path, robot_xy, pedestrians=(), cars=(), rainy=
         (5, 88, 13, 7), (39, 82, 10, 5), (47, 49, 8, 6),
         (70, 12, 12, 6), (4, 5, 9, 5), (88, 72, 9, 5),
     ):
-        ax.add_patch(round_box(x, y, width, height, 1.5, "#a5cf85", "none"))
+        ax.add_patch(round_box(x, y, width, height, 1.5, "#c6dcb5", "none"))
     for x, y in (
         (4, 83), (20, 65), (25, 57), (47, 75), (58, 83), (88, 88), (96, 78),
         (5, 40), (16, 15), (35, 10), (68, 10), (76, 18), (94, 17), (96, 56),
@@ -382,15 +563,37 @@ def obstacle_status(env):
     return "  •  ".join(labels)
 
 
+def step_label(row):
+    outcome = row["Outcome"]
+    if outcome == "retreat":
+        return "Retreated after moving" if row["Energy Used"] else "Next junction blocked"
+    return OUTCOME_LABELS.get(outcome, outcome)
+
+
 def show_log(slot, rows, compact=False):
     if not rows:
-        slot.caption("Step decisions appear after dispatch.")
+        slot.caption("Waiting for the first movement decision.")
         return
-    frame = pd.DataFrame(rows)
-    if compact:
-        columns = ["Step", "Outcome", "To", "Battery Remaining", "Energy Used"]
-        frame = frame.loc[:, columns].tail(7).iloc[::-1]
-    slot.dataframe(frame, hide_index=True, use_container_width=True)
+    if not compact:
+        slot.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+        return
+
+    events = []
+    for row in reversed(rows[-4:]):
+        outcome = row["Outcome"]
+        if outcome in ("timeout", "battery_depleted", "ped_collision", "car_collision"):
+            tone = "stop"
+        elif outcome in ("wait", "retreat", "invalid", "sidestep_failed"):
+            tone = "warn"
+        else:
+            tone = ""
+        events.append(
+            f'<li class="activity-row"><span class="activity-dot {tone}" aria-hidden="true"></span>'
+            f'<div class="activity-desc"><strong>{escape(step_label(row))}</strong>'
+            f'<small>{escape(row["To"])} · Step {row["Step"]}</small></div>'
+            f'<span class="activity-energy">{row["Energy Used"]} units</span></li>'
+        )
+    slot.markdown(f'<ul class="activity-list">{"".join(events)}</ul>', unsafe_allow_html=True)
 
 
 def simulate(env, mission, table, map_slot, battery_slot, log_slot, detail_slot, obstacle_slot):
@@ -413,7 +616,10 @@ def simulate(env, mission, table, map_slot, battery_slot, log_slot, detail_slot,
     render_battery(battery_slot, battery, capacity)
     show_log(log_slot, records)
     obstacle_slot.caption(obstacle_status(env))
-    detail_slot.caption(f'{info["weather_str"]} · {info["time_of_day_str"]} · Dispatched')
+    render_delivery_status(
+        detail_slot, env.node_names[start], "Dispatched", info["weather_str"],
+        info["time_of_day_str"], 0, score,
+    )
 
     while not (terminated or truncated):
         previous_node, previous_battery = state[0], battery
@@ -442,13 +648,6 @@ def simulate(env, mission, table, map_slot, battery_slot, log_slot, detail_slot,
             "Rain Violation": info["rain_violation"],
         })
         pedestrians, cars = obstacle_coordinates(env)
-        render_battery(battery_slot, battery, capacity)
-        show_log(log_slot, records, compact=True)
-        detail_slot.caption(
-            f'{info["weather_str"]} · {info["time_of_day_str"]} · '
-            f'Step {env.steps} · Score {score} pts · {OUTCOME_LABELS.get(outcome, outcome)}'
-        )
-
         frames = FRAMES_PER_STEP if mission["animate"] else 1
         for frame in range(1, frames + 1):
             progress = frame / frames
@@ -462,6 +661,12 @@ def simulate(env, mission, table, map_slot, battery_slot, log_slot, detail_slot,
         if current_node != previous_node:
             path.append(current_node)
 
+        render_delivery_status(
+            detail_slot, env.node_names[current_node], step_label(records[-1]),
+            info["weather_str"], info["time_of_day_str"], env.steps, score,
+        )
+        render_battery(battery_slot, battery, capacity)
+        show_log(log_slot, records, compact=True)
         obstacle_slot.caption(obstacle_status(env))
         if mission["animate"] and not (terminated or truncated):
             time.sleep(STEP_PAUSE)
@@ -502,13 +707,19 @@ def replay():
 
 
 def result_callout(result):
-    text = OUTCOME_LABELS.get(result["outcome"], result["outcome"])
-    if result["outcome"] == "goal":
-        st.success(text)
-    elif result["outcome"] == "timeout":
-        st.warning(text)
+    outcome = result["outcome"]
+    title = OUTCOME_LABELS.get(outcome, outcome)
+    if outcome == "goal":
+        description = "The robot reached the selected destination."
+        tone = ""
     else:
-        st.error(text)
+        description = f'The robot ended this delivery at {result["records"][-1]["To"]}.'
+        tone = "warn"
+    st.markdown(
+        f'<div class="result-panel {tone}" role="status"><strong>{escape(title)}</strong>'
+        f'<span>{escape(description)}</span></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def export_log(result, model, key):
@@ -531,66 +742,82 @@ result = st.session_state.campus_result
 env = make_env()
 
 st.markdown("""
-<div class="campus-banner">
-    <h1>TAR UMT Autonomous Campus Food Delivery</h1>
-    <p>Place an order and track your delivery robot across campus.</p>
+<div class="app-brand">
+    <div class="brand-mark" aria-hidden="true">↗</div>
+    <div><div class="brand-main">Campus Delivery</div>
+        <div class="brand-campus">TAR UMT</div></div>
 </div>
 """, unsafe_allow_html=True)
 
-for col, (label, name, disabled) in zip(st.columns(3), (
+for column, (label, name, disabled) in zip(st.columns(3), (
     ("Order", "order", False),
     ("Live Tracking", "tracking", mission is None),
     ("Delivery Summary", "summary", result is None),
 )):
-    col.button(
+    column.button(
         label, type="primary" if page == name else "secondary",
         on_click=navigate, args=(name,), disabled=disabled,
         key=f"campus_nav_{name}", use_container_width=True,
     )
 
 if page == "order":
-    left, right = st.columns([1, 1.45], gap="large")
+    hero("Order campus delivery", "Choose your food and destination, then follow the robot across campus.")
+    left, right = st.columns([.85, 1.38], gap="large")
     with left:
-        st.subheader("Place an order")
-        a, b = st.columns(2)
-        start = a.selectbox("Restaurant", env.start_locations, format_func=env.node_names.__getitem__)
-        target = b.selectbox("Destination", env.target_destinations, format_func=env.node_names.__getitem__)
-        a, b = st.columns(2)
-        food = a.selectbox("Food item", env.food_menus[start])
-        model = b.selectbox("Navigation model", [*MODEL_FILES, RANDOM_BASELINE])
-        a, b = st.columns(2)
-        weather = a.selectbox("Weather", ["Random", "Sunny", "Rainy"])
-        time_of_day = b.selectbox("Time of day", ["Random", "Day", "Evening", "Night"])
-        animate = st.toggle("Animate robot and obstacles", value=True)
-        render_battery(st, env.battery_capacity, env.battery_capacity, "Starting battery")
+        with st.container(border=True, key="order_form"):
+            section_heading(st, "New order")
+            a, b = st.columns(2)
+            start = a.selectbox("Pickup restaurant", env.start_locations,
+                                format_func=env.node_names.__getitem__)
+            target = b.selectbox("Delivery destination", env.target_destinations,
+                                 format_func=env.node_names.__getitem__)
+            food = st.selectbox("Food item", env.food_menus[start])
 
-        missing_file = model != RANDOM_BASELINE and not (BASE_DIR / MODEL_FILES[model]).is_file()
-        if missing_file:
-            st.warning(f"Add {MODEL_FILES[model]} next to app.py or select Random baseline.")
-        st.button(
-            "Dispatch order", type="primary", on_click=dispatch,
-            args=(start, target, food, weather, time_of_day, model, animate),
-            disabled=missing_file, use_container_width=True,
-        )
+            with st.expander("Simulation settings", expanded=True):
+                model = st.selectbox("Navigation model", [*MODEL_FILES, RANDOM_BASELINE])
+                a, b = st.columns(2)
+                weather = a.selectbox("Weather", ["Random", "Sunny", "Rainy"])
+                time_of_day = b.selectbox("Time of day", ["Random", "Day", "Evening", "Night"])
+                animate = st.toggle("Animate movement", value=True)
+
+            missing_file = model != RANDOM_BASELINE and not (BASE_DIR / MODEL_FILES[model]).is_file()
+            if missing_file:
+                st.caption(f"{model} needs `{MODEL_FILES[model]}`. Choose Random baseline to try tracking.")
+            st.button(
+                "Dispatch order", type="primary", on_click=dispatch,
+                args=(start, target, food, weather, time_of_day, model, animate),
+                disabled=missing_file, use_container_width=True,
+            )
 
     with right:
-        st.subheader("Campus map")
-        show_map(st, env, start, target, [start], env.node_coords[start], rainy=weather == "Rainy")
+        with st.container(border=True, key="route_card"):
+            section_heading(st, "Campus map", "Order preview")
+            route_strip(st, env.node_names[start], env.node_names[target])
+            show_map(st, env, start, target, [start], env.node_coords[start], rainy=weather == "Rainy")
+            render_battery(st, env.battery_capacity, env.battery_capacity, "Dispatch battery")
 
 elif page == "tracking":
     order = mission["order"]
     model = mission["model"]
     start, target = order["start"], order["target"]
+    order_id = f"Order CD-{mission['seed']:08X}"
 
-    st.subheader(f"{env.node_names[start]} → {env.node_names[target]}")
-    st.caption(f'{order["food"]} · {model}')
-    map_col, status_col = st.columns([1.7, 1], gap="large")
-    map_slot = map_col.empty()
-    obstacle_slot = map_col.empty()
-    battery_slot = status_col.empty()
-    detail_slot = status_col.empty()
-    status_col.markdown("**Recent decisions**")
-    log_slot = status_col.empty()
+    hero("Track your delivery", f'{order["food"]} · {model}', order_id)
+    route_strip(st, env.node_names[start], env.node_names[target])
+    map_col, status_col = st.columns([1.55, 1], gap="large")
+    with map_col:
+        with st.container(border=True, key="tracking_map"):
+            section_heading(st, "Campus map")
+            map_slot = st.empty()
+            with st.expander("Campus traffic"):
+                obstacle_slot = st.empty()
+    with status_col:
+        with st.container(border=True, key="tracking_status"):
+            section_heading(st, "Delivery status")
+            detail_slot = st.empty()
+            battery_slot = st.empty()
+            section_heading(st, "Recent activity")
+            log_slot = st.empty()
 
     if result is None:
         try:
@@ -605,12 +832,16 @@ elif page == "tracking":
         st.session_state.campus_success_popup = result["outcome"] == "goal"
         st.rerun()
 
+    last = result["records"][-1]
     show_map(
         map_slot, env, start, target, result["path"], env.node_coords[result["path"][-1]],
         result["pedestrians"], result["cars"], result["rainy"],
     )
     render_battery(battery_slot, result["battery"], result["capacity"], "Battery at finish")
-    detail_slot.caption(f'{result["weather"]} · {result["time_of_day"]} · Score {result["score"]} pts')
+    render_delivery_status(
+        detail_slot, last["To"], OUTCOME_LABELS[result["outcome"]],
+        result["weather"], result["time_of_day"], len(result["records"]), result["score"],
+    )
     obstacle_slot.caption(result.get("obstacle_status", ""))
     show_log(log_slot, result["records"], compact=True)
     result_callout(result)
@@ -623,9 +854,9 @@ elif page == "tracking":
         export_log(result, model, "tracking_csv")
 
     if st.session_state.pop("campus_success_popup", False) and hasattr(st, "dialog"):
-        @st.dialog("Delivery successful")
+        @st.dialog("Delivery complete")
         def show_delivery_success():
-            st.metric("Final score", f'{result["score"]} pts')
+            st.write(f'{order["food"]} arrived at {env.node_names[target]}.')
             render_battery(st, result["battery"], result["capacity"], "Battery at finish")
             if st.button(
                 "Open delivery summary", key="success_summary", on_click=navigate,
@@ -638,26 +869,35 @@ elif page == "tracking":
 elif page == "summary":
     order = mission["order"]
     model = mission["model"]
-    st.subheader("Delivery summary")
-    st.write(f'{order["food"]} · {env.node_names[order["start"]]} → '
-             f'{env.node_names[order["target"]]} · {model}')
+    order_id = f"Order CD-{mission['seed']:08X}"
+
+    hero("Delivery summary", f'{order["food"]} · {model}', order_id)
     result_callout(result)
 
-    a, b, c, d, e = st.columns(5)
-    a.metric("Final score", f'{result["score"]} pts')
-    b.metric("Steps", len(result["records"]))
+    a, b, c, d = st.columns(4)
+    a.metric("Final score", f'{result["score"]:+} pts')
+    b.metric("Delivery steps", len(result["records"]))
     c.metric("Energy used", f'{result["initial_battery"] - result["battery"]} units')
     d.metric("Retreats", result["retreats"])
-    e.metric("Waits", sum(row["Outcome"] == "wait" for row in result["records"]))
-    render_battery(st, result["battery"], result["capacity"], "Battery at finish")
-    st.caption(
-        f'{result["weather"]} · {result["time_of_day"]} · '
-        f'{result["rain_violations"]} uncovered moves in rain'
-    )
-    st.write("Route taken")
-    st.write(" → ".join(env.node_names[node] for node in result["path"]))
-    st.subheader("Delivery log")
-    show_log(st, result["records"])
+
+    left, right = st.columns([1.35, 1], gap="large")
+    with left:
+        with st.container(border=True, key="summary_route"):
+            section_heading(st, "Route recap")
+            route_strip(st, env.node_names[order["start"]], env.node_names[order["target"]])
+            st.write(" → ".join(env.node_names[node] for node in result["path"]))
+    with right:
+        with st.container(border=True):
+            section_heading(st, "Battery and conditions")
+            render_battery(st, result["battery"], result["capacity"], "Battery at finish")
+            conditions = f'{result["weather"]} · {result["time_of_day"]}'
+            if result["rainy"]:
+                conditions += f' · {result["rain_violations"]} uncovered moves'
+            st.caption(conditions)
+
+    with st.container(border=True, key="summary_log"):
+        section_heading(st, "Delivery log", "Energy and decisions by step")
+        show_log(st, result["records"])
 
     a, b, c = st.columns(3)
     a.button("Back to live map", on_click=navigate, args=("tracking",), use_container_width=True)
