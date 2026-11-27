@@ -11,7 +11,7 @@ class CampusDeliveryEnv(gym.Env):
     def __init__(self, max_steps=80, obstacle_mode="routes", contact_mode="retreat",
                  allow_wait=True, stay_prob=0.2, retreat_penalty=-3,
                  allow_sidestep=True, sidestep_penalty=-2, sidestep_fail_prob=0.15,
-                 battery_capacity=15):
+                 battery_capacity=25):
         super().__init__()
         if obstacle_mode not in ("random", "mixed", "routes"):
             raise ValueError("obstacle_mode must be 'random', 'mixed' or 'routes'.")
@@ -1101,7 +1101,7 @@ def make_env():
         obstacle_mode=OBSTACLE_MODE,
         contact_mode=CONTACT_MODE,
         allow_sidestep=False,
-        battery_capacity=15,
+        battery_capacity=25,
     )
     env.set_observation_mode("tabular")
     env.action_space.seed(42)
